@@ -1,0 +1,13 @@
+# per-developer SDD settings (do not commit)
+.claude/*.local.md
+.worktrees/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# weave runtime data
+*.db
