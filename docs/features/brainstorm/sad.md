@@ -15,27 +15,23 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 1. Introduction and goals
 
-<!-- 🎯 Why: durable memory of «what + the three dominant qualities + who cares». A year from
-     now nobody recalls which three qualities were critical for this system.
-     📋 Write: 1 ¶ intent + 3 lines of top-3 quality goals + a stakeholders table.
-     ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
-     — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
+**Intent.** 把 weave demo「多个人设各自独立回答同一问题、记忆彼此隔离」的演示，升级成「多个人设围绕一个主题、按序接力发言、所有发言共享可见」的头脑风暴机制。目标用户是**发起人（Host）**：在开题、产品决策、技术方案之前，让一组不同视角的 AI 角色围绕一个主题对撞想法，随后阅读讨论记录提炼结论。引擎设计为「稳定内核 + 可插拔扩展点」，先在后端把能力做全、由命令行驱动；角色、调度策略、停止条件、消费界面都是扩展点。
 
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Top-3 quality goals（一行一句；完整场景在 §10）**
 
-**Top-3 quality goals (1-liners; full scenarios in §10):**
+1. **一致性/耐久** — 每场会话 0 条丢失或重复发言（追加顺序不变量）。
+2. **会话可靠性** — 已开始的会话 99.9% 不被意外中断，可恢复到中断那一轮。
+3. **可扩展性** — 新增一个角色/策略/界面 = 0 处内核改动。
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
-
-**Stakeholders.**
+**Stakeholders（角色取自 CONTEXT 术语表，不杜撰）**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
-| Tech Lead | SAD approval | Yes |
+| 发起人（Host） | 发起、配置、停止会话；阅读讨论记录 | No |
+| 参与者（Persona） | 按序在共享桌面发言 | No |
+| 路由者（Moderator） | 决定发言顺序与收敛（可选） | No |
+| Tech Lead | SAD 审批 | Yes |
+| Security Lead | 安全审查（§6.1 多角色生成边界 + 提示词注入面） | No |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
