@@ -185,25 +185,16 @@ sequenceDiagram
 
 ## 7. Deployment view
 
-<!-- 🎯 Why: the TOPOLOGY DevOps must know without reading the deploy charts — how many replicas,
-     where the background worker lives, AT WHAT NUMBERS we scale.
-     📋 Write: 2–3 sentences on topology + monitoring + concrete threshold numbers.
-     📌 e.g. «500 authors → partition by quarter» (not «we'll think about scale later»).
-     🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
-     Deployment-diagram scaffold → templates/deployment.md. -->
-
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+本地单进程部署：`brainstorm` CLI 在发起人机器运行，进程内启动引擎；每个会话一个独立 async 任务（ADR-0005），共享一个 SQLite 文件（WAL 模式）。无网络拓扑、无副本——本地命令行工具，非服务。
 
 **Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+- Metrics: `turn_overhead_p95_ms`（每轮编排开销 p95，spec §6 ≤100 ms）、`table_read_p95_ms`（读桌面 p95，spec §6 ≤50 ms）、`session_token_usage`（每会话 token，spec §7 KPI）。
+- Alerts: 会话停滞（单轮无进展超阈值）→ 记录并提示发起人。
+- Tracing: 在会话/回合边界打 span（发言落桌、停止判定）。
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
-
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+- 单进程舒适承载 ≥5 并发会话（内存随会话数线性，ADR-0005）。
+- 会话数达数十量级时评估进程池/多进程；SQLite 单文件 WAL 为单写者，极端并发写另议（§11）。
 
 ## 8. Crosscutting concepts
 
