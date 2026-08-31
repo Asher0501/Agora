@@ -211,43 +211,34 @@ sequenceDiagram
 
 ## 9. Architecture decisions
 
-<!-- 🎯 Why: the REVERSE INDEX onto the adr/ folder. `ls adr/` gives the files; §9 gives the
-     semantics — why they exist, which SAD section they attach to, what status.
-     📋 Write: a 4-column table, one row per ADR. Mixed status is fine.
-     📌 e.g. «0001 | Store content as a table of typed blocks | Accepted | §4». -->
-
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Build the brainstorm engine as a library-sdk driven by a CLI | Accepted | §4 |
+| 0002 | Keep the engine kernel minimal (orchestration loop only) | Accepted | §4 |
+| 0003 | Persist sessions in a single SQLite store with resume-at-round | Accepted | §4 |
+| 0004 | Orchestrate turns synchronously; use the event bus for observability only | Accepted | §4 |
+| 0005 | Give each session its own Weave instance | Accepted | §4 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/brainstorm/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
-<!-- 🎯 Why: the QUALITY TREE — take a goal from §1 and break it into concrete leaves: tests,
-     metrics, configs, drills. ⭐ Without §10, §1 is a manifesto. With §10 each declaration maps
-     to something PROVABLE.
-     📋 Write: per §1 goal — When / Then / How-verify. Numbers from spec §6 NFR VERBATIM (don't
-     round ≤250ms to ≤300ms — that's a critic F6 hit).
-     📌 e.g. «p95 ≤ 500 ms on a block update, verified by a 100 req/s load test». -->
-
 Each top-3 goal from §1 expanded into a full scenario:
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-1. 一致性/耐久**
+- **When:** 会话进行中，多个人设多次追加发言。
+- **Then:** 桌面完整、有序地包含每一次发言并标注发言者；每场会话 0 条丢失或重复发言。
+- **How verify:** 追加顺序不变量测试（spec §6 一致性/耐久行）。
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-2. 会话可靠性**
+- **When:** 会话进行中遇到进程崩溃 / LLM 失败 / 超时 / 断连。
+- **Then:** 已开始的会话 99.9% 不被意外中断；恢复到中断那一轮、已落桌发言不重放。
+- **How verify:** 耐久测试（进程崩溃 / LLM 失败 / 超时 / 断连场景，spec §6）。
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. 可扩展性**
+- **When:** 新增一个角色 / 调度策略 / 停止条件 / 消费界面。
+- **Then:** 0 处内核改动（经扩展点接入，ADR-0002）。
+- **How verify:** 内核边界由 design 定义后，审查变更范围是否触及内核（spec §6 可扩展性行）。
 
 ## 11. Risks and technical debt
 
