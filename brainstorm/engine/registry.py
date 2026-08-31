@@ -1,7 +1,17 @@
 """Extension registry — the kernel's pluggable-extension lookup (ADR-0002)."""
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+
+
+class SessionController:
+    """In-process coordination state between run_session and stop_session."""
+
+    def __init__(self) -> None:
+        self.stop_requested = False
+        self.running = False
+        self.done = asyncio.Event()
 
 
 class Registry:
@@ -12,6 +22,7 @@ class Registry:
         self._schedulers: dict[str, Any] = {}
         self._stop_conditions: dict[str, Any] = {}
         self._consumers: list[Any] = []
+        self._controllers: dict[str, SessionController] = {}
 
     def register_role(self, name: str, role: Any) -> None:
         self._roles[name] = role
@@ -37,3 +48,9 @@ class Registry:
     @property
     def consumers(self) -> list[Any]:
         return list(self._consumers)
+
+    def controller(self, session_id: str) -> SessionController:
+        """Return (creating if needed) the per-session run/stop coordination state."""
+        if session_id not in self._controllers:
+            self._controllers[session_id] = SessionController()
+        return self._controllers[session_id]

@@ -73,9 +73,13 @@ class Repository:
     # ── shared table ─────────────────────────────────────────
 
     async def append_speech(self, session_id: str, speaker_id: str, text: str) -> Speech:
-        """Append a speech with the next strictly-monotonic ``seq``."""
-        table = await self.read_table(session_id)
-        seq = max((s.seq for s in table), default=0) + 1
+        """Append a speech with the next strictly-monotonic ``seq``.
+
+        ``seq`` is ``max(existing seq) + 1`` — read as a point query (last entry),
+        so appends stay O(1) even as the table grows (QG-1 without O(n²)).
+        """
+        recent = await self._memory.stream.last(1, [session_stream_ns(session_id)])
+        seq = (recent[0]["seq"] + 1) if recent else 1
         now = time.time()
         entry = {
             "seq": seq,
