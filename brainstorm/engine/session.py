@@ -76,12 +76,18 @@ async def create_session(repository: Any, config: SessionConfig) -> Session:
 
 
 async def resume_session(repository: Any, session_id: str) -> Session:
-    """Rebuild a Session from persisted state (ADR-0003)."""
+    """Rebuild a Session from persisted state (ADR-0003).
+
+    ``current_seq`` is derived from the shared table (the authoritative source),
+    not the status cache — so a crash between an append and a status update cannot
+    cause a landed speech to be replayed or dropped (QG-1).
+    """
     raw = await repository.load_session_config(session_id)
     if raw is None:
         raise DomainError(NOT_FOUND, f"会话 {session_id} 不存在")
     config = _dict_to_config(raw)
     status = await repository.load_session_status(session_id) or {}
+    history = await repository.read_table(session_id)
     return Session(
         session_id=session_id,
         topic=config.topic,
@@ -89,6 +95,6 @@ async def resume_session(repository: Any, session_id: str) -> Session:
         scheduler=config.scheduler,
         stop_condition=config.stop_condition,
         status=status.get("status", "running"),
-        current_seq=status.get("current_seq", 0),
+        current_seq=len(history),
         created_at=float(raw.get("created_at", 0.0)),
     )
