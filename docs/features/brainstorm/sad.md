@@ -4,7 +4,7 @@ owner: "Asher"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-08-31"
 feature_size: "M"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [library-sdk, cli]  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
 ---
 
 # Software Architecture Document — brainstorm
@@ -97,19 +97,17 @@ C4Context
 
 ## 4. Solution strategy
 
-<!-- 🎯 Why: the 3–4 STRATEGIC PILLARS every ADR grows from. Without §4 each ADR looks random —
-     there's no umbrella. ⭐ The densest section — the blast-radius gate fires almost always here
-     (decisions are irreversible + multi-module).
-     📋 Write: 3–4 choices; each a heading + 2–3 sentences of rationale.
-     📌 «Store content as a table of typed blocks» is a pillar — ADR-0001 grows from it. -->
+**目标表面（Target surfaces）**：`library-sdk`（引擎核心，公开 Python API 即契约）+ `cli`（命令行驱动器）——见 frontmatter `target_surfaces` 与 ADR-0001。本迭代无 UI 表面（spec §3 非目标「不实现 Web 前端」）。
 
-**Top strategic choices (the seeds for ADRs):**
+**Top strategic choices（ADR 的种子）**
 
-1. **<e.g. Module isolation through events>** — <2–3 sentences citing quality goals + constraints>.
-2. **<e.g. Single-store persistence>** — <2–3 sentences>.
-3. **<e.g. Server-rendered read side>** — <2–3 sentences>.
+1. **最小内核 + 可插拔扩展点**（ADR-0002）— 内核只含四样：会话生命周期、回合编排循环、共享桌面（append-only、标记发言者）、扩展注册表；角色、调度策略、停止条件、消费界面是四个扩展点，装配时注册默认实现。这是 spec §1「稳定内核 + 可插拔扩展点」的落地。
+2. **共享桌面作为单一事实来源** — 每场会话一张 append-only 共享桌面（session 级 namespace `brainstorm:{session_id}:stream`），发言按序追加、标注发言者；人设读完整桌面后生成下一条发言。顺序是「0 丢失/重复」不变量的载体。
+3. **同步进程内编排 + 事件仅用于观测**（ADR-0004）— 回合推进（选下一发言者 → 调角色生成 → 追加桌面 → 判停止）走同步调用；weave `event_bus` 只发进度事件，不承载控制流。
+4. **单库持久化 + 会话级隔离 + 可恢复**（ADR-0003）— 单一 SQLite 库，会话按 namespace 隔离；发言落盘即追加；崩溃恢复到中断那一轮、已落桌不重放。
+5. **每会话独立 weave 实例**（ADR-0005）— 每个会话一个独立 `Weave` 实例（各自 loop/LLM/记忆状态），会话作为独立 async 任务并发；共享 SQLite 文件用 WAL 模式承载并发写。
 
-Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
+每个战术决策应追溯到这些种子之一；与种子矛盾的战术决策是红旗，在 §11 揭示。
 
 ## 5. Building block view
 
