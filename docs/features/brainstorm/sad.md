@@ -198,21 +198,16 @@ sequenceDiagram
 
 ## 8. Crosscutting concepts
 
-<!-- 🎯 Why: CROSS-CUTTING PATTERNS spanning several modules: logging, errors, authorization, ID
-     strategy, events, caching. ⭐ The second-densest section. A pattern inside one module is NOT
-     here; a project-wide convention belongs in the convention file.
-     📋 Write: a table — concept / convention / where defined. One row per concept.
-     📌 e.g. «sortable time-based IDs generated in the app layer» as a default from the convention file. -->
-
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Logging | 结构化日志，字段 `module=<name>`、`session_id` | 此处（§8） |
+| Error handling | 领域哨兵错误 → 适配层错误映射 → CLI 退出码/提示 | 此处（§8） |
+| Authorization / Isolation | 会话按 namespace 隔离（`brainstorm:{session_id}:*`）；跨会话读写被拒绝 | ADR-0003；spec §6.1 |
+| ID strategy | `session_id`（会话）、发言按追加顺序号 | 此处（§8） |
+| Internationalisation | N/A，单语言（zh） | — |
+| Observability | event_bus 进度事件 + 会话/回合边界 span | ADR-0004；§7 |
+| Events | 进度事件（回合开始/发言落桌/收敛/停止），不承载控制流 | ADR-0004 |
+| Context-window injection | 共享桌面注入人设上下文：截断到最近 N 条 + 可选摘要（N 可配置） | 此处（§8，spec §8 OQ 默认） |
 
 ## 9. Architecture decisions
 
