@@ -117,6 +117,10 @@ class Repository:
         """Persist a system event (skip / invalid_choice) off the shared table."""
         await self._memory.stream.append(event, session_events_ns(session_id))
 
+    async def read_events(self, session_id: str) -> list[dict[str, Any]]:
+        """Read the session's system events (append order, oldest first)."""
+        return await self._memory.stream.last(_READ_ALL, [session_events_ns(session_id)])
+
     # ── lifecycle ────────────────────────────────────────────
 
     def close(self) -> None:

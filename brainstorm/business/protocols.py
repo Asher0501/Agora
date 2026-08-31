@@ -65,6 +65,7 @@ class StopDecision:
 
     stop: bool
     conclusion: str | None = None
+    converged: bool = False
 
 
 # Module-level singletons; a convergence stop may instead return a
