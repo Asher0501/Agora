@@ -242,32 +242,36 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 ## 11. Risks and technical debt
 
-<!-- 🎯 Why: ⭐ collects EVERYTHING that can break — not only the technical. Without §11 risks get
-     discussed at standups and lost; debt lives only in the head of whoever accepted it.
-     📋 Write: a risk/debt table — severity — mitigation — owner. Accepted debt in its own block.
-     📌 The first risk is often a product risk, not a technical one. That's normal. -->
-
-<!-- Severity literals: Low / Medium / High for regular risks; "Open question" for rows created by
-     a Save-as-OQ resolution during the Socratic walk (see references/socratic.md). -->
-
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| Effort budget / deadline 未定（spec 未引） | Medium | 补齐 PM 预算与截止日期，否则范围易漂移 | PM |
+| 失败处理（重试/跳过/在途停止）未在本设计会话展开 | Medium | `sequences` 阶段按 AC-04b / AC-11b 覆盖；本 SAD 不承诺失败语义 | Tech Lead |
+| demo「每 persona 隔离」在 stream 层已失效（`world:shared:stream` 累积所有发言） | Medium | 新引擎用 `brainstorm:{session_id}:*` 专用 namespace，不复用 demo 的 world scope | Tech Lead |
+| SQLite 单文件 WAL 单写者，极端并发写有上限 | Low | ≥5 会话舒适；数十量级再评估进程池/多进程（§7） | Backend |
+| 上下文注入截断 N 为固定配置，无自适应 | Low | v1 接受；未来可加自适应/摘要 | Backend |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- 失败语义（重试次数、跳过策略、在途发言停止）未定——本设计不覆盖，交 `sequences` / `implement` 后续。
+- 进度事件无 schema 版本化（仅观测，未来消费方多时再版本化）。
+
+> Product 自有开放问题（默认人设名单、未来分支优先级）跟踪于 spec §8，不在此重复。
 
 ## 12. Glossary
 
-<!-- 🎯 Why: ⭐ the DOMAIN GLOSSARY that ends arguments a year later («checkpoint — weekly or
-     biweekly? quarter — calendar or fiscal?»).
-     📋 Write: a term / meaning table. Business + technical terms mixed.
-     📌 e.g. «Lesson | a unit inside a course made of blocks (text, video)». -->
-
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| 发起人（Host） | 提供主题、选定人设与配置、启动/停止会话的人或系统；本身不发言 |
+| 参与者（Persona / 人设） | 具名、带角色描述的 AI 角色，按序在共享桌面发言 |
+| 路由者（Moderator） | 可选的参与者型角色，在每次发言后决定下一位发言者并判断收敛 |
+| 主题（Topic） | 头脑风暴要讨论的问题或命题 |
+| 共享桌面（Shared Table） | 会话内所有发言按序累积、对所有参与者可见的讨论记录（append-only） |
+| 发言（Speech / Utterance） | 某参与者对主题与历史发言的一次贡献，落到桌面并标注发言者 |
+| 会话（Session） | 一次头脑风暴实例，含主题、人设名单、共享桌面与停止条件 |
+| 轮（Round） | 固定轮转模式下所有人设各发言一次；但「固定轮数」停止条件按发言条数计（N 条 = 结束，spec §8 OQ 默认） |
+| 停止条件（Stop Condition） | 会话结束的判据（固定轮数 / 收敛判定 / 手动停止） |
+| 收敛（Convergence） | 讨论被判定为「已达成结论」的状态 |
+| 表面（Surface） | 特性拥有的 C4 容器；本特性为 library-sdk（引擎）+ cli（驱动器） |
+| 内核（Kernel） | 会话编排循环 + 共享桌面 + 扩展注册表；最小且稳定（ADR-0002） |
+| 扩展点（Extension point） | 可插拔的能力接口：角色 / 调度策略 / 停止条件 / 消费界面（ADR-0002） |
+| 调度策略（Scheduling strategy） | 决定下一位发言者的策略（固定轮转 / 路由者） |
+| 命名空间（Namespace） | `brainstorm:{session_id}:stream|state` —— 会话级隔离（ADR-0003） |
