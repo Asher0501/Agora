@@ -111,49 +111,45 @@ C4Context
 
 ## 5. Building block view
 
-<!-- 🎯 Why: INTERNAL DECOMPOSITION — modules, containers, datastores. The static topology: who
-     may talk to whom. Without §5, §6 (the flows) has no vocabulary of participants.
-     📋 Write: 1 ¶ on the style (layered / hexagonal / clean / event-driven) + a folder tree + a
-     C4Container block.
-     📌 Draw ONE Container per declared `target_surface` (frontmatter): a fullstack
-     [backend-service, web-frontend] = a backend-API container + a web/SPA container; a
-     [backend-service, mobile-app] = the API + the mobile app. The Container(web, …) line below is
-     just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
-     📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
-
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+**分层风格**：六边形/clean —— 沿用 demo 的依赖方向：`business/` 纯领域类型（零 weave 依赖）、`weave_adapter/` 是唯一 weave 集成点、配置全部来自 YAML；内核 `engine/` 只做编排，扩展点 `extensions/` 承载可插拔实现（ADR-0002）。
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+brainstorm/                      # 新工程（14_forum）
+├── engine/                      # 内核：会话循环 + 共享桌面 + 扩展注册表
+├── extensions/                  # 默认扩展实现（可插拔）
+│   ├── roles/                   # 人设角色、路由者
+│   ├── schedulers/              # 固定轮转、路由者调度
+│   ├── stop_conditions/         # 固定轮数、收敛、手动
+│   └── consumers/               # CLI 消费、进度观测
+├── business/                    # 纯领域类型（零 weave）：Session / Speech / SharedTable / Config
+├── weave_adapter/               # 唯一 weave 集成点：PersonaAgent + 作用域配置
+└── cli/                         # 命令行入口：commands / flags / exit-codes
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+**C4 Container (L2):**
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title brainstorm — Containers
 
-    Person(actor, "<Actor>")
+    Person(host, "发起人 Host")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(app, "brainstorm 工程") {
+        Container(cli, "Brainstorm CLI", "Python", "命令行驱动：创建/运行/停止会话、导出记录")
+        Container(engine, "Brainstorm 引擎 (library-sdk)", "Python", "会话编排内核 + 可插拔扩展点")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    ContainerDb(store, "SQLite 记忆库", "SQLite", "共享桌面、会话状态、人设私有记忆")
+    System_Ext(weave, "weave 框架 0.1.0", "Loop / Memory / LLM 适配")
+    System_Ext(llm, "LLM 提供方", "生成发言文本")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(host, cli, "配置/启动/停止会话", "CLI")
+    Rel(cli, engine, "调用引擎 API", "import")
+    Rel(engine, weave, "驱动人设回合", "import")
+    Rel(weave, llm, "生成发言", "SDK/HTTP")
+    Rel(engine, store, "读写桌面与状态", "sqlite3")
 ```
 
 ## 6. Runtime view
