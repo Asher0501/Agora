@@ -33,7 +33,9 @@ target_surfaces: [library-sdk, cli]  # filled in §4 — subset of: backend-serv
 | Tech Lead | SAD 审批 | Yes |
 | Security Lead | 安全审查（§6.1 多角色生成边界 + 提示词注入面） | No |
 
-<!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
+<!-- Decision overrides (¶4) -->
+
+- **Decision override:** 人设私有记忆作为真实能力（覆盖 spec §8 OQ1 默认「全共享、无私有记忆」）— rationale: 用户在设计评审（critic 阶段）要求保留，本迭代就做。
 
 ## 2. Constraints
 
@@ -102,7 +104,7 @@ C4Context
 **Top strategic choices（ADR 的种子）**
 
 1. **最小内核 + 可插拔扩展点**（ADR-0002）— 内核只含四样：会话生命周期、回合编排循环、共享桌面（append-only、标记发言者）、扩展注册表；角色、调度策略、停止条件、消费界面是四个扩展点，装配时注册默认实现。这是 spec §1「稳定内核 + 可插拔扩展点」的落地。
-2. **共享桌面作为单一事实来源** — 每场会话一张 append-only 共享桌面（session 级 namespace `brainstorm:{session_id}:stream`），发言按序追加、标注发言者；人设读完整桌面后生成下一条发言。顺序是「0 丢失/重复」不变量的载体。
+2. **共享桌面作为单一事实来源** — 每场会话一张 append-only 共享桌面（session 级 namespace `brainstorm:{session_id}:stream`），发言按序追加、标注发言者；人设基于共享桌面生成下一条发言（经窗口化注入，见 §8）。顺序是「0 丢失/重复」不变量的载体。
 3. **同步进程内编排 + 事件仅用于观测**（ADR-0004）— 回合推进（选下一发言者 → 调角色生成 → 追加桌面 → 判停止）走同步调用；weave `event_bus` 只发进度事件，不承载控制流。
 4. **单库持久化 + 会话级隔离 + 可恢复**（ADR-0003）— 单一 SQLite 库，会话按 namespace 隔离；发言落盘即追加；崩溃恢复到中断那一轮、已落桌不重放。
 5. **每会话独立 weave 实例**（ADR-0005）— 每个会话一个独立 `Weave` 实例（各自 loop/LLM/记忆状态），会话作为独立 async 任务并发；共享 SQLite 文件用 WAL 模式承载并发写。
@@ -181,7 +183,7 @@ sequenceDiagram
     CLI-->>Host: 讨论记录
 ```
 
-**错误/失败流（AC-04b 发言失败、AC-11b 在途发言停止等）**：本设计阶段不展开——失败处理另属独立问题域；交由 `sequences` 阶段按 §5 AC 逐条覆盖。
+**错误/失败流（AC-04b 发言失败、AC-11b 在途发言停止等）**：本设计阶段不展开——失败处理另属独立问题域；交由 `sequences` 阶段按 spec §5 AC 逐条覆盖。
 
 ## 7. Deployment view
 
@@ -202,7 +204,7 @@ sequenceDiagram
 |---|---|---|
 | Logging | 结构化日志，字段 `module=<name>`、`session_id` | 此处（§8） |
 | Error handling | 领域哨兵错误 → 适配层错误映射 → CLI 退出码/提示 | 此处（§8） |
-| Authorization / Isolation | 会话按 namespace 隔离（`brainstorm:{session_id}:*`）；跨会话读写被拒绝 | ADR-0003；spec §6.1 |
+| Authorization / Isolation | 会话按 namespace 隔离（`brainstorm:{session_id}:*` 共享 + `persona:{id}:*` 私有）；跨会话/跨人设读写被拒绝 | ADR-0003 / ADR-0006；spec §6.1 |
 | ID strategy | `session_id`（会话）、发言按追加顺序号 | 此处（§8） |
 | Internationalisation | N/A，单语言（zh） | — |
 | Observability | event_bus 进度事件 + 会话/回合边界 span | ADR-0004；§7 |
@@ -218,6 +220,7 @@ sequenceDiagram
 | 0003 | Persist sessions in a single SQLite store with resume-at-round | Accepted | §4 |
 | 0004 | Orchestrate turns synchronously; use the event bus for observability only | Accepted | §4 |
 | 0005 | Give each session its own Weave instance | Accepted | §4 |
+| 0006 | Give each persona private memory alongside the shared table | Accepted | §4 |
 
 ADR files live under `docs/features/brainstorm/adr/NNNN-<title>.md`.
 
@@ -274,4 +277,5 @@ Each top-3 goal from §1 expanded into a full scenario:
 | 内核（Kernel） | 会话编排循环 + 共享桌面 + 扩展注册表；最小且稳定（ADR-0002） |
 | 扩展点（Extension point） | 可插拔的能力接口：角色 / 调度策略 / 停止条件 / 消费界面（ADR-0002） |
 | 调度策略（Scheduling strategy） | 决定下一位发言者的策略（固定轮转 / 路由者） |
-| 命名空间（Namespace） | `brainstorm:{session_id}:stream|state` —— 会话级隔离（ADR-0003） |
+| 命名空间（Namespace） | `brainstorm:{session_id}:stream|state`（会话共享，ADR-0003）+ `persona:{id}:stream|state`（人设私有，ADR-0006） |
+| 人设私有记忆（Private Memory） | 每人设私有、他人不可见的记忆/便签（ADR-0006） |
