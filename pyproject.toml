@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "brainstorm"
 version = "0.1.0"
 description = "Multi-persona brainstorm engine: shared-table relay speech with pluggable roles/schedulers/stop-conditions/consumers"
+readme = "brainstorm/README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
