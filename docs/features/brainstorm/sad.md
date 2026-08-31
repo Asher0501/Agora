@@ -154,31 +154,34 @@ C4Container
 
 ## 6. Runtime view
 
-<!-- 🎯 Why: the RUNTIME FLOW of 1–2 critical scenarios — who talks to whom, when, in what order.
-     Without §6, §5 is just boxes with no life.
-     📋 Write: a Mermaid sequenceDiagram. Participants are names from §5 (don't invent new ones).
-     Messages are semantic («saves a draft»), NO HTTP verbs / paths / status codes — endpoint-level
-     sequences arrive at the `api` stage.
-     📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
-     the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
-
-**Critical flow 1: <flow name>**
+**Critical flow 1: 固定轮转接力发言（happy path）**
 
 ```mermaid
 sequenceDiagram
-    actor Actor
-    participant Web
-    participant Service
+    participant Host
+    participant CLI
+    participant Engine
+    participant Weave
+    participant LLM
     participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+
+    Host->>CLI: 配置主题/人设/停止条件
+    CLI->>Engine: 创建会话 (start)
+    Engine->>Store: 写入会话状态 + 主题
+    loop 每轮（固定轮转，直到停止条件）
+        Engine->>Engine: 调度器选下一发言者
+        Engine->>Weave: 驱动该人设生成发言 (arun)
+        Weave->>LLM: 生成发言文本
+        LLM-->>Weave: 发言文本
+        Weave-->>Engine: 发言结果
+        Engine->>Store: 追加发言到共享桌面（带顺序号）
+        Engine->>Engine: 判停止条件
+    end
+    Engine-->>CLI: 会话结束 + 完整记录
+    CLI-->>Host: 讨论记录
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**错误/失败流（AC-04b 发言失败、AC-11b 在途发言停止等）**：本设计阶段不展开——失败处理另属独立问题域；交由 `sequences` 阶段按 §5 AC 逐条覆盖。
 
 ## 7. Deployment view
 
