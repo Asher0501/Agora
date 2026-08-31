@@ -1,5 +1,7 @@
 """T5 — default extensions (round_robin scheduler, fixed_rounds / manual stop)."""
 
+import pytest
+
 from brainstorm.business.protocols import SchedulerContext, StopConditionContext
 from brainstorm.business.types import PersonaConfig
 from brainstorm.extensions.schedulers.round_robin import RoundRobinScheduler
@@ -26,12 +28,13 @@ def _sched_ctx(last_speaker_id):
     )
 
 
-def test_round_robin_cycles_in_fixed_order():
+@pytest.mark.asyncio
+async def test_round_robin_cycles_in_fixed_order():
     sched = RoundRobinScheduler()
-    assert sched.next_speaker(_sched_ctx(None)) == "a"
-    assert sched.next_speaker(_sched_ctx("a")) == "b"
-    assert sched.next_speaker(_sched_ctx("b")) == "c"
-    assert sched.next_speaker(_sched_ctx("c")) == "a"  # wrap
+    assert (await sched.next_speaker(_sched_ctx(None))).speaker_id == "a"
+    assert (await sched.next_speaker(_sched_ctx("a"))).speaker_id == "b"
+    assert (await sched.next_speaker(_sched_ctx("b"))).speaker_id == "c"
+    assert (await sched.next_speaker(_sched_ctx("c"))).speaker_id == "a"  # wrap
 
 
 def test_fixed_rounds_stops_at_max_speeches():

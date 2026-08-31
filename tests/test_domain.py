@@ -12,7 +12,13 @@ from brainstorm.business.errors import (
     TOPIC_REQUIRED,
     DomainError,
 )
-from brainstorm.business.protocols import Consumer, Role, Scheduler, StopCondition
+from brainstorm.business.protocols import (
+    Consumer,
+    Role,
+    Scheduler,
+    SchedulingDecision,
+    StopCondition,
+)
 from brainstorm.business.types import (
     PersonaConfig,
     SessionConfig,
@@ -80,9 +86,10 @@ def test_extension_protocols_sign_as_documented():
     assert list(speak.parameters) == ["self", "ctx"]
     assert get_type_hints(Role.speak)["return"] is str
 
+    assert inspect.iscoroutinefunction(Scheduler.next_speaker)
     sched = inspect.signature(Scheduler.next_speaker)
     assert list(sched.parameters) == ["self", "ctx"]
-    assert get_type_hints(Scheduler.next_speaker)["return"] is str
+    assert get_type_hints(Scheduler.next_speaker)["return"] is SchedulingDecision
 
     stop = inspect.signature(StopCondition.evaluate)
     assert list(stop.parameters) == ["self", "ctx"]

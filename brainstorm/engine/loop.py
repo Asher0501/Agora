@@ -59,7 +59,28 @@ async def run_session(
             current_seq=current_seq,
             history=history,
         )
-        speaker_id = scheduler.next_speaker(sched_ctx)
+        decision = await scheduler.next_speaker(sched_ctx)
+
+        # Router-declared convergence (AC-08/AC-10): end immediately.
+        if decision.converged:
+            converged = True
+            conclusion = decision.conclusion
+            break
+
+        # Invalid router choice (AC-07b): record it (fallback already applied).
+        if decision.invalid_choice:
+            await repository.append_event(
+                session_id,
+                {
+                    "type": "invalid_choice",
+                    "speaker_id": decision.invalid_choice,
+                    "reason": "路由者选定无效",
+                },
+            )
+
+        speaker_id = decision.speaker_id
+        if speaker_id is None:
+            continue
 
         # Round quota (AC-15): a persona may not be re-selected within a single
         # scheduler cycle (one full pass over the roster).

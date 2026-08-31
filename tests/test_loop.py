@@ -3,6 +3,7 @@
 import pytest
 
 from brainstorm.business.errors import ROUND_QUOTA_EXHAUSTED, DomainError
+from brainstorm.business.protocols import SchedulingDecision
 from brainstorm.business.types import PersonaConfig, SessionConfig, StopConditionConfig
 from brainstorm.engine.loop import run_session
 from brainstorm.engine.registry import Registry
@@ -35,8 +36,8 @@ class RecordingConsumer:
 
 
 class AlwaysAScheduler:
-    def next_speaker(self, ctx):
-        return "a"
+    async def next_speaker(self, ctx):
+        return SchedulingDecision(speaker_id="a")
 
 
 class FailingLLM:

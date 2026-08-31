@@ -32,7 +32,7 @@ class RoleContext:
 
     topic: str
     history: list[Speech]  # windowed (sad §8)
-    private_memory: PrivateMemory
+    private_memory: PrivateMemory | None = None
 
 
 class Role(Protocol):
@@ -53,10 +53,20 @@ class SchedulerContext:
     history: list[Speech]
 
 
-class Scheduler(Protocol):
-    """Picks the next speaker's persona_id (ADR-0002 extension point)."""
+@dataclass(frozen=True)
+class SchedulingDecision:
+    """A scheduler's per-turn decision: pick a speaker, or declare convergence."""
 
-    def next_speaker(self, ctx: SchedulerContext) -> str: ...
+    speaker_id: str | None = None
+    converged: bool = False
+    conclusion: str | None = None
+    invalid_choice: str | None = None
+
+
+class Scheduler(Protocol):
+    """Picks the next speaker (or declares convergence) — ADR-0002 extension point."""
+
+    async def next_speaker(self, ctx: SchedulerContext) -> SchedulingDecision: ...
 
 
 @dataclass(frozen=True)
