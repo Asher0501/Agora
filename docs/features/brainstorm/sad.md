@@ -62,37 +62,37 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 3. Context and scope
 
-<!-- 🎯 Why: draws the SYSTEM BOUNDARY — who talks to it from outside, where the trust zone ends.
-     Without §3, §5 and §8 (authorization) blur — unclear what's «inside» vs «outside».
-     📋 Write: 2–3 sentences of business context + an external-systems table + a C4Context block.
-     📌 «External: none (deliberate, no third-party in v1)» is itself a decision worth stating.
-     Trust boundary — the line past which you don't trust data without checking it.
-     Never N/A — greenfield still draws the planned actors + external systems. -->
+brainstorm 引擎让**发起人（Host）**用一份声明式配置（主题 + 人设名单 + 停止条件）开启一场会话，多个 AI **人设（Persona）**围绕主题按序接力发言，每次发言落到一张所有参与者可见的**共享桌面**，可选的**路由者（Moderator）**决定发言顺序与收敛。系统本地运行、由命令行驱动，未来经扩展点接前端（论坛界面等）。
 
-<Business context in 2–3 sentences. What the system does for whom.>
-
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: 复用 13_weave 框架 + demo（weave_adapter 唯一集成点；SQLite namespace 隔离） -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| 发起人（Host） | Person | 配置主题/人设/停止条件，启动/停止会话，阅读讨论记录 |
+| weave 框架 0.1.0 | System (external) | 提供 Loop / Memory / LLM 适配能力；唯一接入点 |
+| LLM 提供方 | System (external) | 生成人设发言文本（deepseek / anthropic / openai） |
+| SQLite 记忆库 | System (external datastore) | 持久化共享桌面、会话状态、人设私有记忆 |
 
-**C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
+**信任边界**：主题与人设配置按不可信数据对待（spec §6.1 提示词注入面）；LLM 输出按不可信数据对待；跨会话读写被 namespace 隔离拒绝。
+
+**C4 Context (L1):**
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title brainstorm — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(host, "发起人 Host", "配置主题/人设/停止条件，启动/停止会话，阅读讨论记录")
+    System(app, "Brainstorm 引擎", "围绕主题按序接力发言的会话编排引擎")
+    System_Ext(weave, "weave 框架 0.1.0", "Loop / Memory / LLM 适配能力")
+    System_Ext(llm, "LLM 提供方", "生成人设发言文本")
+    SystemDb(store, "SQLite 记忆库", "共享桌面、会话状态、人设私有记忆")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    Rel(host, app, "配置/启动/停止会话", "CLI")
+    Rel(app, weave, "驱动人设回合", "import")
+    Rel(app, llm, "生成发言", "SDK/HTTP")
+    Rel(app, store, "读写桌面与状态", "sqlite3")
 ```
 
 ## 4. Solution strategy
