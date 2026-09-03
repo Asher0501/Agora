@@ -43,7 +43,10 @@ def load_config(path: str | Path) -> SessionConfig:
 def load_personas(path: str | Path) -> list[PersonaConfig]:
     """Load a persona roster from a YAML file (``personas:`` key or a bare list)."""
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-    items = raw.get("personas", raw if isinstance(raw, list) else [])
+    if isinstance(raw, dict):
+        items = raw.get("personas", [])
+    else:
+        items = raw if isinstance(raw, list) else []
     return [
         PersonaConfig(
             persona_id=str(p.get("persona_id", "")),

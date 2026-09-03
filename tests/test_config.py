@@ -67,6 +67,22 @@ def test_load_personas_list(tmp_path):
     assert [x.persona_id for x in personas] == ["a", "b"]
 
 
+def test_load_personas_bare_list(tmp_path):
+    """A bare YAML list is a valid roster (README `--personas personas.yaml`)."""
+    p = tmp_path / "personas.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            [
+                {"persona_id": "a", "name": "A", "role_description": "产品"},
+                {"persona_id": "b", "name": "B", "role_description": "技术"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    personas = load_personas(p)
+    assert [x.persona_id for x in personas] == ["a", "b"]
+
+
 class _FakeRegistry:
     def __init__(self):
         self.schedulers = {}
