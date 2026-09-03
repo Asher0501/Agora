@@ -1,0 +1,122 @@
+{
+  "slug": "brainstorm",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "搭建 brainstorm 包骨架与测试骨架",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "`pip install -e .` 成功可 `import brainstorm`；`pytest` 可运行（空测试集绿）；冒烟测试导入 business/engine/extensions/weave_adapter/cli 五个子包成功",
+      "files_hint": ["pyproject.toml", "brainstorm/", "tests/"]
+    },
+    {
+      "id": "T2",
+      "title": "定义领域类型、错误哨兵与四个扩展点协议（零 weave 依赖）",
+      "layer": "domain",
+      "deps": ["T1"],
+      "acs": ["AC-02", "AC-03", "AC-13"],
+      "dod": "validate_config 对空主题抛 session.topic_required、去重后 <2 抛 session.insufficient_personas、缺 role_description 抛 session.persona_role_required；四个协议及上下文类型签名与 contracts/public-api.md §4 一致；business/ 无任何 weave import",
+      "files_hint": ["brainstorm/business/"]
+    },
+    {
+      "id": "T3",
+      "title": "实现记忆仓储：会话状态 + 共享桌面 + 私有记忆 + 系统事件落盘",
+      "layer": "infra",
+      "deps": ["T2"],
+      "acs": ["AC-05", "AC-06", "AC-06b"],
+      "dod": "写入 config/status/conclusion 可按 key 读回；append_speech 后 read_table 按 seq 升序完整有序（AC-05）；会话 A 的 namespace 读写不影响会话 B（AC-06/06b）；persona 仅能读写自己 persona:{sid}:{pid} namespace；同会话连续 append 不丢不重",
+      "files_hint": ["brainstorm/weave_adapter/repository.py"]
+    },
+    {
+      "id": "T4",
+      "title": "实现 PersonaRole 与 FakeLLM：经 weave 生成发言并注入上下文窗口",
+      "layer": "infra",
+      "deps": ["T2"],
+      "acs": ["AC-04"],
+      "dod": "FakeLLM 下 Role.speak(ctx) 返回针对主题、含历史发言窗口的文本（AC-04 生成侧）；历史截断到最近 N 条（N 可配置）；RoleContext.private_memory 句柄可读写本人设私有记忆",
+      "files_hint": ["brainstorm/weave_adapter/persona_agent.py"]
+    },
+    {
+      "id": "T5",
+      "title": "实现默认扩展：round_robin 调度 + fixed_rounds 停止 + manual 停止",
+      "layer": "app",
+      "deps": ["T2"],
+      "acs": ["AC-09"],
+      "dod": "round_robin.next_speaker 按固定顺序循环返回 persona_id；fixed_rounds.evaluate 达 max_speeches 返回 Stop（AC-09 判定侧）；manual.evaluate 在收到停止指令前返回 Continue",
+      "files_hint": ["brainstorm/extensions/schedulers/", "brainstorm/extensions/stop_conditions/"]
+    },
+    {
+      "id": "T6",
+      "title": "实现声明式 YAML 配置加载与默认装配（零硬编码）",
+      "layer": "wiring",
+      "deps": ["T2"],
+      "acs": ["AC-12", "AC-13", "AC-14"],
+      "dod": "YAML 人设名单 + 调度/停止条件解析为 SessionConfig，改 YAML 无需改代码（AC-12）；缺 role_description 被拒绝加载（AC-13 加载侧）；占位扩展经声明式注册可装配（AC-14 定义侧）；wiring 装配默认实现到引擎注册表",
+      "files_hint": ["brainstorm/config_loader.py", "brainstorm/wiring.py"]
+    },
+    {
+      "id": "T7",
+      "title": "实现引擎生命周期与扩展注册表：create / read / resume / register",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-01", "AC-02", "AC-03", "AC-05", "AC-06b", "AC-13", "AC-14"],
+      "dod": "create_session 校验通过落盘并返回 Session（AC-01），失败抛对应错误（AC-02/03/13）；read_table 按 namespace 返回有序发言（AC-05）、越界读拒绝（AC-06b）；resume_session 从落盘状态重建会话；register_role/scheduler/stop_condition/consumer 注册后可从注册表取回（AC-14 注册侧）",
+      "files_hint": ["brainstorm/engine/registry.py", "brainstorm/engine/session.py", "brainstorm/engine/table.py"]
+    },
+    {
+      "id": "T8",
+      "title": "实现回合编排循环 run_session：选人 → 生成 → 落桌 → 判停",
+      "layer": "app",
+      "deps": ["T7", "T5", "T4"],
+      "acs": ["AC-04", "AC-04b", "AC-09", "AC-14", "AC-15"],
+      "dod": "happy path 跑满固定轮数结束、桌面含按序发言（AC-04/AC-09）；生成失败重试 N 次仍失败则跳过并记录系统事件（AC-04b）；单轮内同一发言者二次追加被拒 round_quota_exhausted（AC-15）；进度事件按 turn_started/speech_landed/stopped 顺序发出（ADR-0004）",
+      "files_hint": ["brainstorm/engine/loop.py"]
+    },
+    {
+      "id": "T9",
+      "title": "实现路由者调度 + 收敛判定 + 无效选择回退 + 结论",
+      "layer": "app",
+      "deps": ["T8"],
+      "acs": ["AC-07", "AC-07b", "AC-08", "AC-10", "AC-10b"],
+      "dod": "moderator 调度时路由者选定下一位（AC-07）；选定者不在名单内回退固定轮转并记录（AC-07b）；路由者宣告收敛结束并附结论（AC-08/AC-10）；达 max_speeches 仍未收敛强制结束标注未收敛（AC-10b）",
+      "files_hint": ["brainstorm/extensions/schedulers/moderator.py", "brainstorm/extensions/stop_conditions/convergence.py"]
+    },
+    {
+      "id": "T10",
+      "title": "实现手动停止 stop_session：在途发言不丢失 + 产出 SessionOutcome",
+      "layer": "app",
+      "deps": ["T8"],
+      "acs": ["AC-11", "AC-11b"],
+      "dod": "手动停止立即结束并保留当前记录（AC-11）；停止时恰有在途生成等待该发言落桌再结束（AC-11b）；产出 SessionOutcome（converged/conclusion/speeches）完整",
+      "files_hint": ["brainstorm/engine/stop.py"]
+    },
+    {
+      "id": "T11",
+      "title": "实现 CLI 命令 create / run / stop / export 与退出码",
+      "layer": "ports",
+      "deps": ["T7", "T6", "T8", "T9", "T10"],
+      "acs": [],
+      "dod": "create 输出 session_id，run/stop/export 按 contracts/cli.md 输出；领域拒绝映射退出码 1 带 code、用法错误退出码 2；--config 与单项 flag 互斥；export --format json 输出 Speech[]",
+      "files_hint": ["brainstorm/cli/"]
+    },
+    {
+      "id": "T12",
+      "title": "集成 / 并发 / 耐久测试与 NFR 插桩验证",
+      "layer": "tests",
+      "deps": ["T11", "T9", "T10"],
+      "acs": [],
+      "dod": "≥5 会话互不串扰（并发 NFR）；进程崩溃 / LLM 失败 / 超时后可恢复且已落桌不重放（QG-2）；每场会话 0 丢失/重复发言（QG-1）；turn_overhead_p95 ≤100ms、table_read_p95 ≤50ms（延迟 NFR）",
+      "files_hint": ["tests/"]
+    },
+    {
+      "id": "T13",
+      "title": "编写 README：用法、配置示例与扩展点说明",
+      "layer": "docs",
+      "deps": ["T11"],
+      "acs": [],
+      "dod": "README 覆盖 create/run/stop/export 用法 + YAML 配置示例 + 四扩展点接入说明；链接 spec/sad/data-model/contracts，不重复正文",
+      "files_hint": ["brainstorm/README.md"]
+    }
+  ]
+}

@@ -14,3 +14,7 @@ venv/
 
 # weave runtime data
 *.db
+
+# editor / scratch (personal, not project artifacts)
+.obsidian/
+raw.txt
