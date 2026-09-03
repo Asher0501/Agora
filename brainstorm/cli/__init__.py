@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, *, db_path: str | None = None) -> int:
+def main(argv: list[str] | None = None, *, db_path: str | None = None, llm_factory: Any = FakeLLM) -> int:
     """Entry point; returns the process exit code."""
     _reconfigure_stdio()
     try:
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None, *, db_path: str | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     try:
-        return asyncio.run(_dispatch(args, db_path or args.db or DEFAULT_DB))
+        return asyncio.run(_dispatch(args, db_path or args.db or DEFAULT_DB, llm_factory))
     except _UsageError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -86,14 +86,14 @@ def main(argv: list[str] | None = None, *, db_path: str | None = None) -> int:
         return 1
 
 
-async def _dispatch(args: argparse.Namespace, db: str) -> int:
+async def _dispatch(args: argparse.Namespace, db: str, llm_factory: Any) -> int:
     repository = Repository(db)
     registry = _build_registry()
     try:
         if args.command == "create":
             await _cmd_create(repository, registry, args)
         elif args.command == "run":
-            await _cmd_run(repository, registry, args.session_id)
+            await _cmd_run(repository, registry, args.session_id, llm_factory)
         elif args.command == "stop":
             await _cmd_stop(repository, registry, args.session_id)
         elif args.command == "export":
@@ -137,18 +137,18 @@ def _build_config(args: argparse.Namespace) -> SessionConfig:
     )
 
 
-async def _cmd_run(repository: Any, registry: Registry, session_id: str) -> None:
+async def _cmd_run(repository: Any, registry: Registry, session_id: str, llm_factory: Any) -> None:
     session = await resume_session(repository, session_id)
-    _register_roles(registry, session)
+    _register_roles(registry, session, llm_factory)
     outcome = await run_session(repository, registry, session_id)
     _print_outcome(outcome)
 
 
-def _register_roles(registry: Registry, session: Any) -> None:
+def _register_roles(registry: Registry, session: Any, llm_factory: Any = FakeLLM) -> None:
     for p in session.personas:
         registry.register_role(
             p.persona_id,
-            PersonaRole(p.persona_id, p.name, p.role_description, FakeLLM(), _WINDOW_SIZE),
+            PersonaRole(p.persona_id, p.name, p.role_description, llm_factory(), _WINDOW_SIZE),
         )
     if session.scheduler == "moderator":
         router_id = session.personas[0].persona_id

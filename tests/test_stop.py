@@ -101,3 +101,23 @@ async def test_stop_waits_for_inflight_speech(repo):
     await task
 
     assert len(outcome.speeches) >= 1  # 在途发言已落桌，未丢失
+
+
+class RecordingConsumer:
+    def __init__(self):
+        self.events = []
+
+    def on_event(self, event):
+        self.events.append(event)
+
+
+@pytest.mark.asyncio
+async def test_stop_without_loop_emits_stopped_event(repo):
+    registry = _registry()
+    consumer = RecordingConsumer()
+    registry.register_consumer(consumer)
+    session = await create_session(repo, _config())
+
+    await stop_session(repo, registry, session.session_id)
+
+    assert [e.name for e in consumer.events] == ["session.stopped"]

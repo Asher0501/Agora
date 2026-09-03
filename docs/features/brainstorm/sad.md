@@ -183,7 +183,198 @@ sequenceDiagram
     CLI-->>Host: 讨论记录
 ```
 
-**错误/失败流（AC-04b 发言失败、AC-11b 在途发言停止等）**：本设计阶段不展开——失败处理另属独立问题域；交由 `sequences` 阶段按 spec §5 AC 逐条覆盖。
+### 启动会话 — 配置校验（AC-01 · AC-02 · AC-03 · AC-13）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as <client>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over C,S: Precondition: 发起人已提供主题与人设名单（声明式配置）
+    C->>S: 启动会话（提交主题 + 人设名单）
+    S->>S: 校验配置：主题非空、人设去重后至少两位、每人设有角色描述
+    alt 主题为空
+        S-->>C: 拒绝启动（主题不能为空）
+    else 人设去重后不足两位
+        S-->>C: 拒绝启动（至少需要两位参与者）
+    else 某人设缺少角色描述
+        S-->>C: 拒绝加载（该人设必须提供角色描述）
+    else 校验通过
+        S->>D: 写入会话状态、主题、人设名单
+        Note over S,D: persists Session（session_id、主题、人设名单、停止条件）
+        D-->>S: 确认落盘
+        S-->>C: 会话已开始
+    end
+    Note over C,S: Postcondition: 会话已创建并持久化，或启动被阻止且无任何会话写入
+```
+
+### 接力发言 — 生成失败重试与轮次名额（AC-04b · AC-15）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as <service>
+    participant X as <external-system>
+    participant D as <data-store>
+
+    Note over S,X: Precondition: 会话进行中，调度器选定某位参与者为本轮发言者
+    S->>S: 检查该参与者本轮发言名额
+    alt 本轮已发言（重复追加）
+        S-->>S: 阻止追加（本轮发言名额已用）
+    else 名额可用
+        S->>X: 请求生成发言（注入主题 + 历史发言窗口）
+        X-->>S: 发言文本，或生成失败
+        alt 生成失败（超时或结果为空）
+            Note over S,X: 重试 N 次（退避），仍失败则跳过
+            S->>D: 记录跳过该参与者及失败原因
+            Note over S,D: persists 跳过记录（发言者、轮次、失败原因）
+            D-->>S: 确认落盘
+            Note over S: 会话继续推进（调度器选下一位）
+        else 生成成功
+            S->>D: 追加发言到共享桌面（带顺序号 + 发言者）
+            Note over S,D: persists Speech（追加顺序号、发言者、文本）
+            D-->>S: 确认落盘
+        end
+    end
+    Note over S,D: Postcondition: 本轮落桌一条发言，或跳过并记录；单轮内绝不二次追加
+```
+
+### 共享桌面 — 顺序读取与跨会话隔离（AC-05 · AC-06 · AC-06b）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over S,D: Precondition: 会话 A 进行中，参与者 a 属于会话 A，会话 B 是另一场会话
+    S->>D: 按会话 A 的命名空间读取共享桌面
+    D-->>S: 完整、按序、标注发言者的发言列表
+    Note over S,D: 读范围限于会话 A 的命名空间，不越界
+    Note over S,D: 隔离为构造保证：读/写 API 仅绑定本会话命名空间，参与者无法命名会话 B 的命名空间，故无运行时拒绝分支
+    Note over S,D: Postcondition: 本会话内可见完整有序发言，会话 B 桌面保持不变、内容不暴露
+```
+
+### 路由者调度 — 选人、无效回退、收敛（AC-07 · AC-07b · AC-08）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as <service>
+    participant X as <external-system>
+    participant D as <data-store>
+
+    Note over S,X: Precondition: 会话启用了路由者，某位参与者刚完成发言
+    S->>X: 调度路由者（结合桌面上下文与停止条件生成裁决）
+    X-->>S: 路由者裁决（选定下一位，或宣布收敛）
+    alt 宣布收敛
+        S->>D: 记录收敛结论
+        Note over S,D: persists 收敛状态 + 结论
+        D-->>S: 确认落盘
+        S->>S: 交停止条件处理，结束会话
+    else 选定下一位发言者
+        S->>S: 校验该发言者是否在人设名单内
+        alt 不在名单内
+            S->>S: 回退到固定轮转顺序选取下一位
+            S->>D: 记录本次无效选择
+            Note over S,D: persists 无效选择记录
+            D-->>S: 确认落盘
+        else 在名单内
+            Note over S: 按路由者选定推进下一轮
+        end
+    end
+    Note over S,X: Postcondition: 下一发言者合法（或回退固定轮转），收敛则交停止条件结束会话
+```
+
+### 自动停止 — 固定轮数 / 收敛 / 上限兜底（AC-09 · AC-10 · AC-10b）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over S,D: Precondition: 会话进行中，每轮落桌后执行停止判定
+    S->>S: 判定停止条件
+    alt 固定轮数（已达配置轮数）
+        S->>D: 标记会话结束，产出完整讨论记录
+        Note over S,D: persists 会话结束状态 + 完整记录
+        D-->>S: 确认落盘
+        S->>S: 返回完整讨论记录
+    else 收敛判定（路由者已宣布收敛）
+        S->>D: 标记会话结束，附带结论或摘要
+        Note over S,D: persists 结论或摘要
+        D-->>S: 确认落盘
+        S->>S: 返回结论
+    else 收敛判定但达最大轮数上限仍未收敛
+        S->>D: 强制结束，标注未收敛
+        Note over S,D: persists 结束状态 + 未收敛标记
+        D-->>S: 确认落盘
+        S->>S: 返回记录（标注未收敛）
+    end
+    Note over S,D: Postcondition: 会话按停止条件结束，产出完整记录（或结论、未收敛标注）
+```
+
+### 手动停止 — 在途发言不丢失（AC-11 · AC-11b）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as <client>
+    participant S as <service>
+    participant X as <external-system>
+    participant D as <data-store>
+
+    Note over C,S: Precondition: 会话进行中，配置为手动停止
+    C->>S: 发出停止指令
+    S->>S: 检查是否有在途发言生成中
+    alt 有在途发言生成中
+        S->>X: 等待在途发言返回
+        X-->>S: 发言文本
+        S->>D: 追加在途发言到共享桌面
+        Note over S,D: persists Speech（顺序号、发言者、文本）
+        D-->>S: 确认落盘
+    else 无在途发言
+        Note over S: 立即进入结束
+    end
+    S->>D: 结束会话，保留当前讨论记录
+    Note over S,D: persists 会话结束状态 + 当前记录
+    D-->>S: 确认落盘
+    S-->>C: 会话已结束，附讨论记录
+    Note over C,S: Postcondition: 停止后会话结束，在途发言（若有）已落桌，无丢失
+```
+
+### 声明式配置与扩展点生效（AC-12 · AC-14）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as <client>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over C,S: Precondition: 发起人已声明式改动人设名单或停止条件，并定义了一个占位扩展（如回显名字的角色）
+    C->>S: 启动会话（提交新配置 + 占位扩展）
+    S->>S: 从声明式配置读取，并注册扩展（占位角色）
+    S->>D: 写入会话状态（按新配置）
+    Note over S,D: persists Session（新配置 + 注册的扩展）
+    D-->>S: 确认落盘
+    Note over S: 会话循环到达占位角色时，经扩展点调用
+    S->>S: 占位角色经扩展点执行（回显名字），内核循环未改动
+    S->>D: 追加占位角色发言到共享桌面
+    Note over S,D: persists Speech（顺序号、发言者、文本）
+    D-->>S: 确认落盘
+    S-->>C: 会话运行中，新配置与占位扩展已生效
+    Note over C,S: Postcondition: 新配置无需改代码即生效，扩展点接入的新角色运行且内核未改动
+```
+
+**Flagged items（sequences 阶段记录，不改动既有块）:**
+
+- **参与者词汇不一致**：既有 F1 用具体参与者 `Host / CLI / Engine / Weave / LLM / Store`，本阶段新增流程统一用泛化词汇 `<client> / <service> / <data-store> / <external-system>`。按「不重写既有块」规则 F1 保留原样，交由 `design` 决定是否回改 F1 对齐泛化词汇。
+- **event_bus 未画作参与者**：ADR-0004 规定事件总线仅作观测、不承载控制流，故全部流程为同步编排，未引入 `<message-bus>` 参与者，也无幂等键/死信分支。
+- **失败语义的具体参数仍开放**：F3（AC-04b）与 F7（AC-11b）画出了失败形状（重试 N 次后跳过、等待在途发言落桌），但重试次数 N、退避策略等具体参数仍未定，由 `data-model` / `tasks` / `implement` 落实（呼应 §11 已接受的债务）。
 
 ## 7. Deployment view
 
@@ -209,7 +400,7 @@ sequenceDiagram
 | Internationalisation | N/A，单语言（zh） | — |
 | Observability | event_bus 进度事件 + 会话/回合边界 span | ADR-0004；§7 |
 | Events | 进度事件（回合开始/发言落桌/收敛/停止），不承载控制流 | ADR-0004 |
-| Context-window injection | 共享桌面注入人设上下文：截断到最近 N 条 + 可选摘要（N 可配置） | 此处（§8，spec §8 OQ 默认） |
+| Context-window injection | 共享桌面注入人设上下文：截断到最近 N 条 + 可选摘要（v1 固定 N=20；可配置化随引擎泛化 roadmap 步骤 2 吸收） | 此处（§8，spec §8 OQ 默认） |
 
 ## 9. Architecture decisions
 

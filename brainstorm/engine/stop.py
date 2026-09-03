@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..business.protocols import ProgressEvent
 from ..business.types import SessionOutcome
 from .session import resume_session
 
@@ -50,4 +51,13 @@ async def stop_session(repository: Any, registry: Any, session_id: str) -> Sessi
         # A turn is in flight — wait for it to land and for the loop to finalize.
         await controller.done.wait()
         return await build_outcome(repository, session_id)
-    return await finalize_session(repository, session_id, converged=False, conclusion=None)
+    outcome = await finalize_session(repository, session_id, converged=False, conclusion=None)
+    _emit_stopped(registry, session_id)
+    return outcome
+
+
+def _emit_stopped(registry: Any, session_id: str) -> None:
+    """Emit the stopped observability event (ADR-0004) on the direct-stop path."""
+    event = ProgressEvent(name="session.stopped", session_id=session_id, payload={"status": "stopped"})
+    for consumer in registry.consumers:
+        consumer.on_event(event)

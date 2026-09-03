@@ -4,8 +4,10 @@ import json
 
 import pytest
 import yaml
+from weave.llm.base import LLMResponse
 
 from brainstorm.cli import main
+from brainstorm.weave_adapter.persona_agent import FakeLLM
 
 
 @pytest.fixture
@@ -88,3 +90,31 @@ def test_export_json(capsys, db, tmp_path):
     assert isinstance(out, list)
     assert len(out) == 2
     assert set(out[0]) == {"seq", "speaker_id", "text"}
+
+
+class ConvergingLLM(FakeLLM):
+    """Deterministic router double — always declares convergence (AC-08/10 at CLI)."""
+
+    async def chat(self, messages, tools=None, max_tokens=4096, temperature=0.7):
+        return LLMResponse(content="CONVERGE: 结论是X")
+
+
+def test_run_moderator_converges(capsys, db, tmp_path):
+    main(
+        [
+            "create",
+            "--topic", "主题",
+            "--personas", _personas_file(tmp_path),
+            "--scheduler", "moderator",
+            "--stop-condition", "convergence",
+        ],
+        db_path=db,
+    )
+    sid = capsys.readouterr().out.strip()
+
+    rc = main(["run", sid], db_path=db, llm_factory=ConvergingLLM)
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "converged=True" in out
+    assert "结论是X" in out

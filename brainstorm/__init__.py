@@ -16,8 +16,6 @@ Public Python API (contracts/public-api.md §3):
 """
 
 from .business import (
-    CROSS_SESSION_READ,
-    CROSS_SESSION_WRITE,
     INSUFFICIENT_PERSONAS,
     INVALID_STATE,
     NOT_FOUND,
@@ -72,8 +70,6 @@ __all__ = [
     "INSUFFICIENT_PERSONAS",
     "PERSONA_ROLE_REQUIRED",
     "ROUND_QUOTA_EXHAUSTED",
-    "CROSS_SESSION_WRITE",
-    "CROSS_SESSION_READ",
     "NOT_FOUND",
     "INVALID_STATE",
     # types

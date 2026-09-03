@@ -26,12 +26,12 @@ class DomainError(Exception):
 
 
 # Error codes — contracts/public-api.md §5.
-# The first six are AC-derived; the last two are `# inferred` (sequence gap).
+# The first four are AC-derived; the last two are `# inferred` (sequence gap).
+# Cross-session isolation is structural (namespace construction, spec AC-06/06b),
+# not a runtime rejection — hence no cross_session_write/read sentinels.
 TOPIC_REQUIRED = "session.topic_required"
 INSUFFICIENT_PERSONAS = "session.insufficient_personas"
 PERSONA_ROLE_REQUIRED = "session.persona_role_required"
 ROUND_QUOTA_EXHAUSTED = "session.round_quota_exhausted"
-CROSS_SESSION_WRITE = "session.cross_session_write"
-CROSS_SESSION_READ = "session.cross_session_read"
 NOT_FOUND = "session.not_found"
 INVALID_STATE = "session.invalid_state"

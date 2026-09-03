@@ -138,3 +138,28 @@ async def test_progress_events_in_order(repo):
         "session.speech_landed",
         "session.stopped",
     ]
+
+
+class EchoRole:
+    """A minimal placeholder role that echoes its own id (AC-14)."""
+
+    def __init__(self, persona_id: str):
+        self.persona_id = persona_id
+
+    async def speak(self, ctx):
+        return f"{self.persona_id}: 回显"
+
+
+@pytest.mark.asyncio
+async def test_custom_role_runs_through_extension_point(repo):
+    config = _config(max_speeches=2)
+    registry = Registry()
+    registry.register_role("a", EchoRole("a"))
+    registry.register_role("b", EchoRole("b"))
+    _register_defaults(registry)
+    session = await create_session(repo, config)
+
+    outcome = await run_session(repo, registry, session.session_id)
+
+    assert [s.speaker_id for s in outcome.speeches] == ["a", "b"]
+    assert [s.text for s in outcome.speeches] == ["a: 回显", "b: 回显"]

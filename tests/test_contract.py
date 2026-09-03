@@ -12,8 +12,6 @@ def test_error_sentinels_match_contract():
         "session.insufficient_personas",
         "session.persona_role_required",
         "session.round_quota_exhausted",
-        "session.cross_session_write",
-        "session.cross_session_read",
         "session.not_found",
         "session.invalid_state",
     }
@@ -22,8 +20,6 @@ def test_error_sentinels_match_contract():
         brainstorm.INSUFFICIENT_PERSONAS,
         brainstorm.PERSONA_ROLE_REQUIRED,
         brainstorm.ROUND_QUOTA_EXHAUSTED,
-        brainstorm.CROSS_SESSION_WRITE,
-        brainstorm.CROSS_SESSION_READ,
         brainstorm.NOT_FOUND,
         brainstorm.INVALID_STATE,
     }

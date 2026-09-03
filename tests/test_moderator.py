@@ -143,3 +143,18 @@ async def test_convergence_cap_force_stop_not_converged(repo):
 
     assert outcome.converged is False
     assert len(outcome.speeches) == 3
+
+
+@pytest.mark.asyncio
+async def test_invalid_choice_is_persisted(repo):
+    config = _config(max_speeches=2)
+    registry = _registry(StubRouter(["NEXT: zzz"]))
+    session = await create_session(repo, config)
+
+    outcome = await run_session(repo, registry, session.session_id)
+
+    events = await repo.read_events(session.session_id)
+    invalid = [e for e in events if e.get("type") == "invalid_choice"]
+    assert invalid  # 至少一条无效选择已落库（AC-07b）
+    assert invalid[0]["speaker_id"] == "zzz"
+    assert outcome.converged is False

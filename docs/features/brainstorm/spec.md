@@ -9,6 +9,7 @@ feature_size: "M"
 # Spec — brainstorm
 
 > **Glossary:** [CONTEXT](./CONTEXT.md)
+> **Project:** [idea-brief](../../idea-brief.md) —— 本特性是「多方接力协作引擎」的**第一个场景**（三层：引擎 relay / 场景 brainstorm / 界面 forum）。引擎的彻底泛化（L1 接力层 + 原子接口 + 声明式配置）是后续独立步骤（idea-brief §7 步骤 2），不在本特性范围。
 > **Reference:** `13_weave/demo/`（`demo/main.py`、`business/personas.yaml`、`weave_adapter/agent.py`）与 `13_weave/README.md` —— 演示「共享客观上下文 + 人设私有记忆隔离」模式，本特性将其反转。
 
 ## 1. Context
@@ -34,6 +35,8 @@ feature_size: "M"
 - 本迭代不让真人以参与者身份中途插入发言（「玩家」仅指人设；人只负责发起、观察、停止）。
 - 本迭代不实现 Web 前端与观察者角色——作为「未来可衍生分支」保留（内核预留扩展点），不在本迭代交付。
 - 不做通用闲聊 / 多轮问答——这是结构化的、有边界与停止条件的头脑风暴。
+- 本迭代不支持跨进程手动停止：CLI `stop` 无法打断另一进程正在运行的 `run`（手动停止的完整语义在 library-sdk 进程内成立，CLI `stop` 为 best-effort）。
+- 本迭代不做「引擎彻底泛化」：把内核重构成无语义的 L1 接力层 + 原子接口 + 声明式配置（使辩论/面试等新场景零代码）——这是后续独立步骤（[idea-brief](../../idea-brief.md) §7 步骤 2）。本特性以现有四个扩展点（ADR-0002）为扩展性边界。
 
 ## 4. User stories
 
@@ -121,13 +124,13 @@ feature_size: "M"
 
 **Given** 一个参与者属于会话 A，而会话 B 的桌面属于另一场会话
 **When** 该参与者尝试向会话 B 的桌面追加发言
-**Then** 系统拒绝写入，会话 B 的桌面保持不变
+**Then** 系统按会话命名空间隔离（构造保证，无跨会话写入入口），会话 B 的桌面保持不变
 
 ### AC-06b (US-03) — authorization
 
 **Given** 一个参与者属于会话 A
 **When** 该参与者尝试读取会话 B 的桌面
-**Then** 系统拒绝读取，会话 B 的桌面内容不向该参与者暴露
+**Then** 系统按会话命名空间隔离（构造保证，读路径仅绑定本会话），会话 B 的桌面内容不向该参与者暴露
 
 ### AC-07 (US-04) — happy path
 
@@ -242,3 +245,4 @@ feature_size: "M"
 - [ ] 路由者调度 + 固定轮数停止条件时，「轮」按什么计数？Default now: 按发言条数计（固定轮数等价于最多 N 条发言）。— owner: Tech Lead, due: before sdd:design
 - [ ] 共享桌面随轮数增长，注入上下文窗口的策略（截断 / 摘要 / 上限）？Default now: 截断到最近 N 条 + 可选摘要。— owner: Tech Lead, due: before sdd:design
 - [ ] 未来分支（观察者角色 / Web 论坛界面 / 其它）的优先级与先后顺序？Default now: 观察者角色优先、论坛界面次之。— owner: Product, due: before sdd:roadmap
+- [ ] 引擎泛化（L1 接力层 + 原子接口 + 声明式配置）何时启动？届时 Role/Scheduler/StopCondition/Consumer 四协议是否降维成配置？Default now: 作为 brainstorm 之后的独立步骤（idea-brief §7 步骤 2），本特性不动；设计草案见 `_design/atomic-relay.md`。— owner: Tech Lead, due: before 引擎泛化步骤启动
