@@ -2,6 +2,8 @@
 
 ## brainstorm — 多角色接力头脑风暴引擎（library-sdk + CLI）
 
+> **命名**：`brainstorm` 是引擎 **`agora`**（多方接力协作引擎，本项目仓库名）的**第一个场景**；引擎名 `agora` / 场景名 `brainstorm` / 界面名 `forum`，见 [idea-brief §3](../../idea-brief.md)。
+
 **What:** 新增 `brainstorm` 引擎——给定一个主题与一份人设名单，多个人设围绕主题**按序接力发言**、所有发言落到一张共享、有序、持久化的「桌面」上；由可插拔的**调度策略**决定发言顺序、可插拔的**停止条件**（固定轮数 / 收敛判定 / 手动停止）结束会话。以 **library-sdk（引擎核心）** + **CLI（`create`/`run`/`stop`/`export`）** 两个表面交付，默认离线运行（`FakeLLM`，无需 API Key）。
 
 **Why:** 现有 weave 框架已提供「循环 + 记忆 + 命名空间隔离」，demo 也证明了多人设可并行作答，但缺少一条**共享、按序**的协作循环——这正是头脑风暴需要的。本特性在现成地基上补齐「共享桌面 + 回合调度」，并以四扩展点（角色 / 调度 / 停止 / 消费）保留未来分支的衍生空间。详见 [spec §1/§2](spec.md)。关键决策：[ADR-0002](adr/0002-minimal-kernel-pluggable-extensions.md)（最小内核 + 可插拔扩展）、[ADR-0003](adr/0003-persist-sessions-sqlite-resume.md)（SQLite 持久化 + 按轮恢复）、[ADR-0004](adr/0004-sync-orchestration-events-observability.md)（同步编排 + 事件仅观测）、[ADR-0006](adr/0006-persona-private-memory.md)（人设私有记忆）。

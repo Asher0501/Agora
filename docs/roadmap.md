@@ -3,7 +3,7 @@ status: living
 updated_at: "2026-09-03"
 ---
 
-# Roadmap — 14_forum
+# Roadmap — agora
 
 > **A decomposition, not a promise.** 整体想法拆成增量步骤：每步是什么、来源、大小、依赖、顺序与并行泳道。**无日期**（除 Shipped 历史）、**无评分**——顺序即优先级。每步的**解决方案**在其 `docs/features/<slug>/` spec，不在这里。
 

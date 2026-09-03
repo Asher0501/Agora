@@ -9,7 +9,7 @@ feature_size: "M"
 # Spec — brainstorm
 
 > **Glossary:** [CONTEXT](./CONTEXT.md)
-> **Project:** [idea-brief](../../idea-brief.md) —— 本特性是「多方接力协作引擎」的**第一个场景**（三层：引擎 relay / 场景 brainstorm / 界面 forum）。引擎的彻底泛化（L1 接力层 + 原子接口 + 声明式配置）是后续独立步骤（idea-brief §7 步骤 2），不在本特性范围。
+> **Project:** [idea-brief](../../idea-brief.md) —— 本特性是「多方接力协作引擎」**`agora`** 的**第一个场景**（三层：引擎 agora / 场景 brainstorm / 界面 forum）。引擎的彻底泛化（L1 接力层 + 原子接口 + 声明式配置）是后续独立步骤（idea-brief §7 步骤 2），不在本特性范围。
 > **Reference:** `13_weave/demo/`（`demo/main.py`、`business/personas.yaml`、`weave_adapter/agent.py`）与 `13_weave/README.md` —— 演示「共享客观上下文 + 人设私有记忆隔离」模式，本特性将其反转。
 
 ## 1. Context
