@@ -6,6 +6,7 @@
 [![Status](https://img.shields.io/badge/status-brainstorm%20shipped-brightgreen?style=flat)]()
 [![Tests](https://img.shields.io/badge/tests-63%20passed-brightgreen?style=flat)]()
 [![Lint](https://img.shields.io/badge/lint-ruff%20%2B%20mypy-blue?style=flat)]()
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat)](LICENSE)
 
 ---
 
@@ -291,4 +292,4 @@ mypy brainstorm                  # 类型检查
 
 ## License
 
-未指定（TODO）—— 建议在仓库中加入 MIT 或 Apache-2.0 `LICENSE` 文件。
+[MIT](LICENSE) © 2026 Asher0501
