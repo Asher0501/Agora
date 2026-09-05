@@ -175,31 +175,58 @@ C4Container
 
 ## 6. Runtime view
 
-<!-- 🎯 Why: the RUNTIME FLOW of 1–2 critical scenarios — who talks to whom, when, in what order.
-     Without §6, §5 is just boxes with no life.
-     📋 Write: a Mermaid sequenceDiagram. Participants are names from §5 (don't invent new ones).
-     Messages are semantic («saves a draft»), NO HTTP verbs / paths / status codes — endpoint-level
-     sequences arrive at the `api` stage.
-     📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
-     the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
-
-**Critical flow 1: <flow name>**
+**Critical flow 1: 接力一轮（happy path）**
 
 ```mermaid
 sequenceDiagram
-    actor Actor
-    participant Web
-    participant Service
+    participant Host
+    participant CLI
+    participant Engine
+    participant Weave
+    participant LLM
     participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+
+    Host->>CLI: 启动会话（场景 + 运行时值）
+    CLI->>Engine: 加载并校验配置 + 创建会话
+    Engine->>Store: 写会话状态 + 配置快照
+    loop 每轮接力
+        Engine->>Engine: 选人原子选下一位发言者
+        Engine->>Engine: 判停原子判定是否结束
+        alt 未停止
+            Engine->>Weave: 驱动角色产出（模板 + 注入 + 生成 + 解析）
+            Weave->>LLM: 生成发言文本
+            LLM-->>Weave: 发言文本
+            Weave-->>Engine: 解析后的发言
+            Engine->>Store: 追加发言到共享转录（顺序号 + 发言者）
+        else 已停止
+            Engine->>Store: 标记会话结束 + 产出总结
+        end
+    end
+    Engine-->>CLI: 会话结束 + 完整转录/总结
+    CLI-->>Host: 讨论记录 + 总结
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**Critical flow 2: 启动会话的配置校验（error path，AC-02b/03/04/13）**
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant CLI
+    participant Engine
+
+    Host->>CLI: 启动会话（提交场景配置 + 运行时值）
+    CLI->>Engine: 加载配置 + 校验
+    Engine->>Engine: 校验：能力属于菜单或已注册扩展、角色描述必填、output 与 select/stop 匹配
+    alt 非法配置
+        Engine-->>CLI: 拒绝启动（哪个角色缺什么 / 哪个能力不受支持）
+        CLI-->>Host: 配置错误 + 可读原因
+    else 合法配置
+        Engine-->>CLI: 校验通过，会话已创建
+        CLI-->>Host: 会话已开始
+    end
+```
+
+**Flagged items（`sequences` 阶段覆盖，本阶段不画）：** resume 恢复（AC-15）、手动停止（AC-11）、选人无效回退（AC-07b）、裁判解析失败回退（spec §8 OQ4）、进度事件（AC-18）——`sequences` 按 §5 AC 全覆盖。
 
 ## 7. Deployment view
 
