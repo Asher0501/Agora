@@ -258,72 +258,83 @@ sequenceDiagram
 
 ## 9. Architecture decisions
 
-<!-- 🎯 Why: the REVERSE INDEX onto the adr/ folder. `ls adr/` gives the files; §9 gives the
-     semantics — why they exist, which SAD section they attach to, what status.
-     📋 Write: a 4-column table, one row per ADR. Mixed status is fine.
-     📌 e.g. «0001 | Store content as a table of typed blocks | Accepted | §4». -->
-
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Build agora as a library-sdk driven by a CLI | Accepted | §4 |
+| 0002 | Extract the kernel into a new semantics-free `agora/` package | Accepted | §4 |
+| 0003 | Replace the four extension protocols with a five-atom closed menu + declarative config | Accepted | §4 |
+| 0004 | Provide a controlled extension zone (same-process trusted, unversioned) | Accepted | §4 |
+| 0005 | Validate config at load time against the closed menu ∪ registered extensions | Accepted | §4 |
+| 0006 | Resume sessions from a creation-time config snapshot | Accepted | §4 |
+| 0007 | Check stop before producing each turn | Accepted | §4 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/agora/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
-<!-- 🎯 Why: the QUALITY TREE — take a goal from §1 and break it into concrete leaves: tests,
-     metrics, configs, drills. ⭐ Without §10, §1 is a manifesto. With §10 each declaration maps
-     to something PROVABLE.
-     📋 Write: per §1 goal — When / Then / How-verify. Numbers from spec §6 NFR VERBATIM (don't
-     round ≤250ms to ≤300ms — that's a critic F6 hit).
-     📌 e.g. «p95 ≤ 500 ms on a block update, verified by a 100 req/s load test». -->
+**QG-1. 配置加载正确性**
+- **When:** 场景作者提交非法配置（引用不存在的选人/判停方式、角色缺描述、裁判产出格式与判停不符）。
+- **Then:** 非法配置 100% 在加载时被拒绝并给出可读原因（哪个角色缺什么 / 哪个能力不受支持）。
+- **How verify:** 覆盖全部已知非法类别的校验测试（spec §6 配置加载正确性行）。
 
-Each top-3 goal from §1 expanded into a full scenario:
+**QG-2. 一致性 / 耐久**
+- **When:** 会话进行中，多角色多次追加发言。
+- **Then:** 共享转录完整、有序、标注发言者；每场会话 0 条丢失或重复发言。
+- **How verify:** 追加顺序不变量测试（spec §6 一致性/耐久行）。
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-3. 会话可靠性**
+- **When:** 会话进行中遇到进程崩溃 / 生成失败 / 超时 / 断连。
+- **Then:** 按月窗口，已开始的会话 ≥99.9% 不被意外中断（仅计崩溃/生成失败/超时/断连，排除手动停止/封顶/裁判收敛）；恢复到中断那一轮、已落桌不重放。
+- **How verify:** 耐久测试（按上述排除项口径统计，spec §6 会话可靠性行）。
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-4. 编排 / 读延迟**
+- **When:** 单会话运行时测量每轮编排与读完整转录。
+- **Then:** 每轮编排开销（不含生成）延迟 p95 ≤100 ms；读取完整共享转录延迟 p95 ≤50 ms。
+- **How verify:** 本地插桩（spec §6 两行延迟）。
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-5. 并发会话隔离**
+- **When:** ≥5 个会话并发运行。
+- **Then:** 会话数据隔离（AC-16/17），并发下 p95 延迟不劣化超过 2× 单会话基线（编排 p95 ≤200 ms）。
+- **How verify:** 并发冒烟测试（隔离断言 + 并发 p95 对比，spec §6 并发会话数行）。
 
 ## 11. Risks and technical debt
 
-<!-- 🎯 Why: ⭐ collects EVERYTHING that can break — not only the technical. Without §11 risks get
-     discussed at standups and lost; debt lives only in the head of whoever accepted it.
-     📋 Write: a risk/debt table — severity — mitigation — owner. Accepted debt in its own block.
-     📌 The first risk is often a product risk, not a technical one. That's normal. -->
-
-<!-- Severity literals: Low / Medium / High for regular risks; "Open question" for rows created by
-     a Save-as-OQ resolution during the Socratic walk (see references/socratic.md). -->
-
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| 自选自判（选人者/裁判同时在发言名单 → 自我收敛的作弊转录） | Low | 引擎不加强结构校验（OQ1 裁决）；文档化风险，由场景作者在 prompt 约束 | Tech Lead |
+| 主题注入（恶意主题诱导角色泄露系统提示/其它会话内容） | Medium | 主题按不可信数据处理；跨会话 namespace 隔离（AC-16/17）；配置加载校验 | Security Lead |
+| 摘要失真（摘要丢弃关键信息致裁判误判收敛） | Medium | 摘要原子可观测；收敛判定由裁判基于共享转录（非仅摘要） | Tech Lead |
+| 扩展区同进程受信（可触及其它会话数据） | Medium | 读范围以 AC-16/17 为界；信任建立在扩展者可信上（OQ7 裁决） | Security Lead |
+| 生成失败语义未定（重试次数/跳过/在途停止） | Medium | `sequences` 阶段按 AC-04b/AC-11b 覆盖；本 SAD 不承诺失败语义 | Tech Lead |
+| SQLite 单文件 WAL 单写者，极端并发写有上限 | Low | ≥5 会话舒适；数十量级再评估进程池（§7） | Backend |
+| 破坏性重构风险（brainstorm 迁移） | Medium | brainstorm 测试回归实证（AC-01）；旧数据不迁移（spec §3） | Tech Lead |
+| Effort budget / deadline 未定（spec 未引） | Medium | 补齐 PM 预算与截止日期 | PM |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- 扩展区 ABI 本轮不承诺稳定/版本化（OQ5 裁决）——未来需要时再版本化。
+- 进度事件无 schema 版本化（仅观测，未来消费方多时再版本化）。
+- 选人无效重试固定 1 次（OQ6 裁决）——未来可配置化。
+
+> spec §8 的 7 个开放问题已在本设计环节全部裁决：OQ1→§4 内联（自选自判不校验）、OQ2→ADR-0007、OQ3→ADR-0006、OQ4→§8（确定性回退+事件）、OQ5→ADR-0004、OQ6→§8（重试 1 次）、OQ7→ADR-0004（同进程受信）。
 
 ## 12. Glossary
 
-<!-- 🎯 Why: ⭐ the DOMAIN GLOSSARY that ends arguments a year later («checkpoint — weekly or
-     biweekly? quarter — calendar or fiscal?»).
-     📋 Write: a term / meaning table. Business + technical terms mixed.
-     📌 e.g. «Lesson | a unit inside a course made of blocks (text, video)». -->
-
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| 场景作者（Scenario Author） | 用声明式配置定义一个场景的人；只写配置、不写引擎代码（除非经扩展区） |
+| 发起人（Host） | 提供运行时值并启动/停止/观察会话的人或系统，本身不发言 |
+| 角色（Role / 参与者） | 场景里定义、会在共享转录发言的 AI 角色 |
+| 选人者（Selector role） | 决定下一位发言者的角色 |
+| 裁判（Judge role） | 判定是否收敛的角色 |
+| 扩展者（Extension Author） | 经扩展区写自定义能力代码的人 |
+| 观察者（Observer） | 订阅进度事件、只读不发言的角色 |
+| 引擎（Engine / agora） | 无语义的接力协作内核：按序接力 + 共享转录 + 判停 + 持久化恢复 |
+| 原子（Atom） | 引擎收敛的最小能力单元：产出 / 选人 / 判停 / 存储 / 摘要 |
+| 场景（Scenario） | 引擎上的一类应用 = 声明式配置 + 运行时值 |
+| 菜单 / 闭集（Closed menu） | 标准原子的固定集合；场景作者从菜单里组合 |
+| 扩展区（Extension zone） | 受控的自定义代码接入点，独立于标准菜单、不承诺稳定 ABI（本轮） |
+| 共享转录（Shared transcript） | 全员可见、按序累积、标注发言者的发言记录 |
+| 私有状态（Private state） | 角色跨轮携带的私有笔记/草稿，他人不可见；可由摘要填充 |
+| 结论（Verdict） | 裁判判停路径产出的收敛判断；仅裁判收敛路径产出 |
+| 总结（Final recap） | 任意终止路径都产出的全局复盘：汇总私有状态 + 共享转录 |
+| 中性命名空间（Neutral namespace） | `agora:{session_id}:*`（共享）+ 角色私有，取代 brainstorm 的 `brainstorm:`/`persona:` 硬编码根 |
