@@ -67,37 +67,40 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 3. Context and scope
 
-<!-- 🎯 Why: draws the SYSTEM BOUNDARY — who talks to it from outside, where the trust zone ends.
-     Without §3, §5 and §8 (authorization) blur — unclear what's «inside» vs «outside».
-     📋 Write: 2–3 sentences of business context + an external-systems table + a C4Context block.
-     📌 «External: none (deliberate, no third-party in v1)» is itself a decision worth stating.
-     Trust boundary — the line past which you don't trust data without checking it.
-     Never N/A — greenfield still draws the planned actors + external systems. -->
+agora 引擎让**场景作者（Scenario Author）**用一份声明式 YAML 配置定义场景（角色 + 选人 + 判停 + 产出），**发起人（Host）**提供运行时值启动会话，多个 AI **角色**按序接力发言到一张全员可见的**共享转录**；**选人者**决定下一位发言者、**裁判**判定是否收敛、判停方式结束会话，会话可持久化并在崩溃后恢复。系统本地运行、由 CLI 驱动，无语义——不「懂」头脑风暴或辩论，只做接力协作的机制。
 
-<Business context in 2–3 sentences. What the system does for whom.>
-
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: 复用 brainstorm 工程（单包 brainstorm/，三层单向依赖 + weave 适配层 + SQLite namespace 隔离），内核抽成中性 agora/ 包 -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| 场景作者（Scenario Author） | Person | 定义场景（YAML 配置 + 运行时值注入），零引擎代码 |
+| 发起人（Host） | Person | 提供运行时值，启动/停止/观察会话，订阅进度事件 |
+| weave 框架 0.1.0 | System (external) | LLM + Memory 适配（BaseLLM / MemoryManager），唯一集成点 |
+| LLM 提供方 | System (external) | 生成角色发言文本（deepseek / anthropic / openai） |
+| SQLite 记忆库 | System (external datastore) | 持久化共享转录、会话状态、角色私有状态 |
 
-**C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
+**信任边界**：主题与运行时值按不可信数据处理（spec §6.1 主题注入）；场景配置按「准代码」处理——加载时校验、非法即拒；LLM 输出按不可信数据处理；跨会话/跨命名空间读写被隔离拒绝（AC-16/17）。
+
+**C4 Context (L1):**
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title agora — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(author, "场景作者 Scenario Author", "定义场景（YAML 配置 + 运行时值注入）")
+    Person(host, "发起人 Host", "提供运行时值，启动/停止/观察会话")
+    System(app, "agora 引擎", "无语义的接力协作内核：按序接力 + 共享转录 + 判停 + 持久化恢复")
+    System_Ext(weave, "weave 框架 0.1.0", "LLM + Memory 适配")
+    System_Ext(llm, "LLM 提供方", "生成角色发言文本")
+    SystemDb(store, "SQLite 记忆库", "共享转录、会话状态、角色私有状态")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    Rel(author, app, "定义场景", "YAML 配置")
+    Rel(host, app, "启动/停止/观察会话", "CLI")
+    Rel(app, weave, "驱动角色回合", "import")
+    Rel(app, llm, "生成发言", "SDK/HTTP")
+    Rel(app, store, "读写转录与状态", "sqlite3")
 ```
 
 ## 4. Solution strategy
