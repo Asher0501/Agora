@@ -41,30 +41,29 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 2. Constraints
 
-<!-- 🎯 Why: §4 strategy only works when §2 has fixed WHAT IS ALREADY FIXED — stack, versions,
-     deadline, regulatory. This is an input, not an output.
-     📋 Write: four blocks — Technical / Organisational / Conventions / Regulatory.
-     📌 Pin versions («<datastore> 18», not «<datastore>»); «Q3 deadline — hard», not «ideally».
-     Never N/A — every feature inherits at least Conventions + Technical. -->
-
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- Python ≥3.11（weave `requires-python = ">=3.11"`；ruff/mypy target py311）。
+- weave **0.1.0**（外部依赖：LLM + Memory；本轮在 `pyproject.toml` 正式声明并固定版本）。PyYAML ≥6.0（唯一显式运行时依赖，配置解析）。
+- SQLite（经 weave `memory_entries` 单表，`namespace + access_type + key` 三键隔离；无 ORM）。
+- asyncio（标准库，会话并发）+ argparse（标准库，CLI）；无 pydantic/click/typer。
+- LLM 经 weave `BaseLLM` 适配（deepseek / anthropic / openai 可插拔；离线 `FakeLLM`）。
+- 架构约定：单向依赖分层——领域层零 weave 依赖、适配层是唯一集成点、配置全部来自 YAML、零硬编码。
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Effort budget — `<TBD by PM>`（spec 未引，§11 记待定）。
+- Deadline — `<TBD by PM>`。
+- Team — 单人（Asher）。
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- 依赖方向单向（`tests/test_domain.py` 断言 business 不 import weave）。
+- 命名：agora 需中性化 brainstorm 的领域词汇（Session/Speech/Persona → 中性 turn/agent/run 概念）。
+- 隔离：namespace 按会话隔离，根前缀中性化（`agora:{session_id}:*`，取代硬编码的 `brainstorm:`/`persona:`）。
+- 错误码中性化（去掉 `session.*` 的 brainstorm 前缀语义）。
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- Data classification: **internal**（spec §6.1 —— 讨论记录含未定稿推理）。
+- Personal data: **无**（角色均为虚构）。
+- Security review: **Required**（配置成为「准代码」后的注入面 + 扩展区代码的信任边界）。
 
 ## 3. Context and scope
 
