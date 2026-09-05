@@ -15,27 +15,27 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 1. Introduction and goals
 
-<!-- 🎯 Why: durable memory of «what + the three dominant qualities + who cares». A year from
-     now nobody recalls which three qualities were critical for this system.
-     📋 Write: 1 ¶ intent + 3 lines of top-3 quality goals + a stakeholders table.
-     ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
-     — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
+**Intent.** agora 是「多方接力协作引擎」的**引擎层泛化**：把 brainstorm 里已被证明可行的「多角色按序接力 + 共享转录 + 判停 + 持久化恢复 + 扩展点」内核，从 brainstorm 语义中剥离，做成**无语义**的接力协作内核。目标用户是**场景作者**——想在引擎上搭「头脑风暴 / 辩论 / 面试」这类场景的人，他们要的是「填一份配置就能跑一个新场景」，而不是「再写一个引擎」。
 
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Top-3 quality goals（一行一句；完整场景在 §10）**
 
-**Top-3 quality goals (1-liners; full scenarios in §10):**
+1. **配置加载正确性** — 非法配置 100% 在加载时被拒绝并给出可读原因（零代码扩展的前提，也是配置成为「准代码」后的第一道注入面闸门）。
+2. **一致性 / 耐久** — 每场会话 0 条丢失或重复发言（追加顺序不变量）。
+3. **会话可靠性** — 已开始的会话 ≥99.9% 不被意外中断，可恢复到中断那一轮、已落桌不重放。
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
-
-**Stakeholders.**
+**Stakeholders（角色取自 CONTEXT 术语表，不杜撰）**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
-| Tech Lead | SAD approval | Yes |
+| 场景作者（Scenario Author） | 用配置定义场景，零引擎代码 | No |
+| 发起人（Host） | 提供运行时值，启动/停止/观察会话 | No |
+| 角色（Role / 参与者） | 按序在共享转录发言 | No |
+| 选人者（Selector role） | 决定下一位发言者 | No |
+| 裁判（Judge role） | 判定是否收敛 | No |
+| 扩展者（Extension Author） | 经扩展区接入自定义能力 | No |
+| 观察者（Observer） | 订阅进度事件（只读） | No |
+| Tech Lead | SAD 审批 | Yes |
+| Security Lead | 安全审查（配置注入面 + 扩展区信任边界） | No |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
