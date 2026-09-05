@@ -122,49 +122,55 @@ C4Context
 
 ## 5. Building block view
 
-<!-- 🎯 Why: INTERNAL DECOMPOSITION — modules, containers, datastores. The static topology: who
-     may talk to whom. Without §5, §6 (the flows) has no vocabulary of participants.
-     📋 Write: 1 ¶ on the style (layered / hexagonal / clean / event-driven) + a folder tree + a
-     C4Container block.
-     📌 Draw ONE Container per declared `target_surface` (frontmatter): a fullstack
-     [backend-service, web-frontend] = a backend-API container + a web/SPA container; a
-     [backend-service, mobile-app] = the API + the mobile app. The Container(web, …) line below is
-     just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
-     📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
-
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+**分层风格**：六边形 / clean —— 沿用 brainstorm 的依赖方向：领域/内核层零 weave 依赖、`adapter/` 是唯一 weave 集成点、配置全部来自 YAML、零硬编码（ADR-0002）。内核 `core/` 只做原子接口 + 接力编排，`config/` 承载 schema + 加载校验，`extension/` 是受控逃生门，`store/` 是 namespace KV。
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+agora/                          # 新中性包（ADR-0002）
+├── core/                       # 无语义内核
+│   ├── atoms.py                # 五个原子 Protocol（Produce/Select/Stop/Store/Summary）
+│   ├── relay.py                # 接力循环（选人→判停→产出→落桌，ADR-0007）
+│   ├── session.py              # 会话生命周期 + resume（快照，ADR-0006）
+│   └── types.py                # 中性类型（Run/Turn/Transcript/Agent/ScenarioConfig）
+├── config/                     # 声明式配置
+│   ├── schema.py               # YAML schema（roles/select/stop + summary）
+│   └── validator.py            # 加载时校验（菜单 ∪ 已注册扩展，ADR-0005）
+├── store/                      # namespace KV：StreamStore + StateStore
+├── extension/                  # 扩展区（受控逃生门，ADR-0004）
+├── adapter/                    # weave + LLM 适配（唯一集成点）
+│   ├── llm.py                  # BaseLLM 适配（deepseek/anthropic/openai/FakeLLM）
+│   └── repository.py           # SQLite memory_entries 适配
+└── cli/                        # 命令行驱动器（argparse：run/stop/resume/observe）
+
+scenarios/
+└── brainstorm.yaml             # 第一个场景（纯配置，实证零代码扩展）
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+**C4 Container (L2):**
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title agora — Containers
 
-    Person(actor, "<Actor>")
+    Person(author, "场景作者 Scenario Author", "定义场景")
+    Person(host, "发起人 Host", "运行/停止/观察会话")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(app, "agora 工程") {
+        Container(cli, "agora CLI", "Python (argparse)", "命令行驱动：run/stop/resume/observe")
+        Container(engine, "agora 引擎 (library-sdk)", "Python", "无语义内核：原子 + 接力循环 + 配置校验 + 扩展区")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    ContainerDb(store, "SQLite 记忆库", "SQLite", "共享转录、会话状态、角色私有状态")
+    System_Ext(weave, "weave 框架 0.1.0", "LLM + Memory 适配")
+    System_Ext(llm, "LLM 提供方", "生成角色发言文本")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(author, cli, "定义场景", "YAML 配置")
+    Rel(host, cli, "运行/停止/恢复/观察", "CLI")
+    Rel(cli, engine, "调用引擎 API", "import")
+    Rel(engine, weave, "驱动角色回合", "import")
+    Rel(weave, llm, "生成发言", "SDK/HTTP")
+    Rel(engine, store, "读写转录与状态", "sqlite3")
 ```
 
 ## 6. Runtime view
