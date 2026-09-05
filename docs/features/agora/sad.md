@@ -105,7 +105,7 @@ C4Context
 
 ## 4. Solution strategy
 
-**目标表面（Target surfaces）**：`library-sdk`（引擎内核，公开 Python API 即契约）+ `cli`（命令行驱动器）——见 frontmatter `target_surfaces` 与 ADR-0001。本迭代无 UI 表面（spec §3 非目标「不做 Web 前端/论坛界面」，观察者角色留 roadmap 步骤 5）。
+**目标表面（Target surfaces）**：`library-sdk`（引擎内核，公开 Python API 即契约）+ `cli`（命令行驱动器）——见 frontmatter `target_surfaces` 与 ADR-0001。本迭代无 UI 表面（spec §1「for whom」+ §4 角色均为引擎/系统角色，无人类 UI；论坛界面是 roadmap 步骤 3、观察者角色是 spec §3 非目标，均不在本迭代）。
 
 **Top strategic choices（ADR 的种子）**
 
@@ -206,7 +206,7 @@ sequenceDiagram
     CLI-->>Host: 讨论记录 + 总结
 ```
 
-**Critical flow 2: 启动会话的配置校验（error path，AC-02b/03/04/13）**
+**Critical flow 2: 启动会话的配置校验（error path，AC-03/04/13）**
 
 ```mermaid
 sequenceDiagram
@@ -226,7 +226,7 @@ sequenceDiagram
     end
 ```
 
-**Flagged items（`sequences` 阶段覆盖，本阶段不画）：** resume 恢复（AC-15）、手动停止（AC-11）、选人无效回退（AC-07b）、裁判解析失败回退（spec §8 OQ4）、进度事件（AC-18）——`sequences` 按 §5 AC 全覆盖。
+**Flagged items（`sequences` 阶段覆盖，本阶段不画）：** 运行时值校验 / 场景不存在（AC-02b）、resume 恢复（AC-15）、手动停止（AC-11）、选人无效回退（AC-07b）、裁判解析失败回退（spec §8 OQ4）、进度事件（AC-18）——`sequences` 按 §5 AC 全覆盖。
 
 ## 7. Deployment view
 
@@ -305,7 +305,7 @@ ADR files live under `docs/features/agora/adr/NNNN-<title>.md`.
 | 主题注入（恶意主题诱导角色泄露系统提示/其它会话内容） | Medium | 主题按不可信数据处理；跨会话 namespace 隔离（AC-16/17）；配置加载校验 | Security Lead |
 | 摘要失真（摘要丢弃关键信息致裁判误判收敛） | Medium | 摘要原子可观测；收敛判定由裁判基于共享转录（非仅摘要） | Tech Lead |
 | 扩展区同进程受信（可触及其它会话数据） | Medium | 读范围以 AC-16/17 为界；信任建立在扩展者可信上（OQ7 裁决） | Security Lead |
-| 生成失败语义未定（重试次数/跳过/在途停止） | Medium | `sequences` 阶段按 AC-04b/AC-11b 覆盖；本 SAD 不承诺失败语义 | Tech Lead |
+| 生成失败语义未定（重试/跳过策略） | Medium | 在途取消由 AC-11、在途丢弃+该轮重试由 AC-15 已定；生成超时/空结果的重试/跳过留给 `sequences`/`implement` | Tech Lead |
 | SQLite 单文件 WAL 单写者，极端并发写有上限 | Low | ≥5 会话舒适；数十量级再评估进程池（§7） | Backend |
 | 破坏性重构风险（brainstorm 迁移） | Medium | brainstorm 测试回归实证（AC-01）；旧数据不迁移（spec §3） | Tech Lead |
 | Effort budget / deadline 未定（spec 未引） | Medium | 补齐 PM 预算与截止日期 | PM |

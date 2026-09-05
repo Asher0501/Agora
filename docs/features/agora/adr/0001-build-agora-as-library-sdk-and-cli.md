@@ -15,7 +15,7 @@ ticket: ""
 
 ## Context
 
-agora 是「多方接力协作引擎」的引擎层泛化：目标用户是**场景作者**（写配置）与**发起人**（跑会话），无人类 UI 表面（spec §3 非目标「不做 Web 前端/论坛界面」）。需要决定「引擎以什么形态交付」。
+agora 是「多方接力协作引擎」的引擎层泛化：目标用户是**场景作者**（写配置）与**发起人**（跑会话），无人类 UI 表面（spec §1「for whom」+ §4 角色均为引擎/系统角色；论坛界面是 roadmap 步骤 3，不在本迭代）。需要决定「引擎以什么形态交付」。
 
 ## Decision drivers
 
@@ -40,7 +40,7 @@ agora 是「多方接力协作引擎」的引擎层泛化：目标用户是**场
 - 库接口即契约，`api` 阶段导出 `contracts/public-api.md` 与 `contracts/cli.md`。
 
 **Negative**
-- 无 HTTP 表面——未来「论坛界面」（roadmap 步骤 5）需在 library-sdk 之上再包 backend-service。
+- 无 HTTP 表面——未来「论坛界面」（roadmap 步骤 3）需在 library-sdk 之上再包 backend-service。
 
 **Neutral**
 - 未来加 backend-service 是「在库之上加一层」，不推翻本决策。
