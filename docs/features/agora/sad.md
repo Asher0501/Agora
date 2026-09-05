@@ -230,43 +230,31 @@ sequenceDiagram
 
 ## 7. Deployment view
 
-<!-- 🎯 Why: the TOPOLOGY DevOps must know without reading the deploy charts — how many replicas,
-     where the background worker lives, AT WHAT NUMBERS we scale.
-     📋 Write: 2–3 sentences on topology + monitoring + concrete threshold numbers.
-     📌 e.g. «500 authors → partition by quarter» (not «we'll think about scale later»).
-     🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
-     Deployment-diagram scaffold → templates/deployment.md. -->
-
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+本地单进程部署：`agora` CLI 在发起人机器运行，进程内启动引擎；每个会话一个独立 async 任务（沿用 brainstorm ADR-0005 的并发模型），共享一个 SQLite 文件（WAL 模式）。无网络拓扑、无副本——本地命令行工具 + 库，非服务。
 
 **Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+- Metrics: `turn_overhead_p95_ms`（每轮编排开销 p95，spec §6 ≤100 ms）、`table_read_p95_ms`（读完整转录 p95，spec §6 ≤50 ms）、`session_token_usage`（每会话 token，spec §7 KPI）。
+- Alerts: 会话停滞（单轮无进展超阈值）→ 记录并提示发起人。
+- Tracing: 会话/回合边界 span（发言落桌、判停判定）。
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
-
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+- 单进程舒适承载 ≥5 并发会话（spec §6 并发会话数 ≥5、隔离 AC-16/17）。
+- 会话数达数十量级时评估进程池/多进程；SQLite 单文件 WAL 为单写者，极端并发写另议（§11）。
 
 ## 8. Crosscutting concepts
 
-<!-- 🎯 Why: CROSS-CUTTING PATTERNS spanning several modules: logging, errors, authorization, ID
-     strategy, events, caching. ⭐ The second-densest section. A pattern inside one module is NOT
-     here; a project-wide convention belongs in the convention file.
-     📋 Write: a table — concept / convention / where defined. One row per concept.
-     📌 e.g. «sortable time-based IDs generated in the app layer» as a default from the convention file. -->
-
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Logging | 结构化日志，字段 `module=<name>`、`session_id` | 此处（§8） |
+| Error handling | 单一 `DomainError`（snake_case 中性错误码 `agora.*`，取代 brainstorm 的 `session.*`）+ 中文可读 message + details；领域哨兵 → adapter 映射 → CLI 退出码/提示 | 此处（§8） |
+| Authorization / Isolation | 会话/角色按 namespace 隔离（`agora:{session_id}:*` 共享 + 角色私有），跨会话/角色读写被拒（AC-16/17） | ADR-0006；spec §6.1 |
+| ID strategy | `session_id`（UUID）；发言按追加顺序号 `seq`（应用层单调递增） | 此处（§8） |
+| Internationalisation | N/A，单语言（zh） | — |
+| Observability | 进度事件 + 会话/回合边界 span | 此处（§8）+ §7 |
+| Events | 进度事件（回合开始/发言落桌/收敛/停止），不承载控制流（沿用 brainstorm ADR-0004 语义） | 此处（§8） |
+| 配置校验 | 加载时校验（菜单 ∪ 已注册扩展，未注册即拒） | ADR-0005 |
+| 裁判解析失败回退 | 裁判产出解析失败（不含预期格式）→ 确定性回退（视为不收敛）+ 记录观测事件 | 此处（§8，spec §8 OQ4） |
+| 选人无效重试 | 选人者选定的下一位不在名单内 → 重试 1 次，仍无效回退到名单顺序选取 + 记录观测事件 | 此处（§8，spec §8 OQ6） |
 
 ## 9. Architecture decisions
 
