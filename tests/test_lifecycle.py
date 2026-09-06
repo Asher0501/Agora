@@ -1,90 +1,111 @@
-"""T7 — engine lifecycle (create / resume / read_table) + extension registry."""
+"""T8 — 会话生命周期（create/resume/stop/read，AC-02/02b/11/15/15b）。"""
+from __future__ import annotations
 
 import pytest
 
-from brainstorm.business.errors import NOT_FOUND, TOPIC_REQUIRED, DomainError
-from brainstorm.business.types import PersonaConfig, SessionConfig, StopConditionConfig
-from brainstorm.engine.registry import Registry
-from brainstorm.engine.session import create_session, resume_session
-from brainstorm.engine.table import read_table
-from brainstorm.extensions.schedulers.round_robin import RoundRobinScheduler
-from brainstorm.extensions.stop_conditions.fixed_rounds import FixedRoundsStop
-from brainstorm.weave_adapter.repository import Repository
-
-
-def _config(topic="主题"):
-    return SessionConfig(
-        topic=topic,
-        personas=[
-            PersonaConfig(persona_id="a", name="A", role_description="产品"),
-            PersonaConfig(persona_id="b", name="B", role_description="技术"),
-        ],
-        scheduler="round_robin",
-        stop_condition=StopConditionConfig(type="fixed_rounds", max_speeches=4),
-    )
+from agora.adapter.repository import Repository
+from agora.errors import (
+    RUN_CORRUPTED,
+    RUN_NOT_FOUND,
+    RUNTIME_VALUE_REQUIRED,
+    SCENARIO_NOT_FOUND,
+    DomainError,
+)
+from agora.session import create_run, read_transcript, resume_run, stop_run
+from agora.types import RoleConfig, RuntimeValues, ScenarioConfig, SelectConfig, StopConfig
 
 
 @pytest.fixture
 def repo(tmp_path):
-    r = Repository(tmp_path / "m.db")
+    r = Repository(tmp_path / "memory.db")
     yield r
     r.close()
 
 
+class _Registry:
+    def __init__(self):
+        self.observers = []
+
+
+def _scenario(name="brainstorm"):
+    return ScenarioConfig(
+        scenario=name,
+        roles=[RoleConfig(id="alice", prompt="你是{name}。主题：{topic}", inject=["topic"], output="free_text")],
+        select=SelectConfig(type="round_robin"),
+        stop=StopConfig(type="fixed_rounds", max=3),
+    )
+
+
+# ── AC-02 / AC-02b ─────────────────────────────────────────────────────
+
 @pytest.mark.asyncio
-async def test_create_session_persists_and_returns(repo):
-    session = await create_session(repo, _config())
-    assert session.session_id
-    assert session.topic == "主题"
-    assert session.status == "running"
-    assert session.current_seq == 0
-    assert await repo.load_session_config(session.session_id) is not None
+async def test_create_run_persists_snapshot(repo):
+    run = await create_run(repo, _scenario(), RuntimeValues(topic="主题"))
+    assert run.run_id
+    assert run.status == "running"
+    assert run.current_seq == 0
+    assert await repo.load_config(run.run_id) is not None
 
 
 @pytest.mark.asyncio
-async def test_create_session_rejects_invalid_config(repo):
+async def test_create_run_rejects_missing_topic(repo):
     with pytest.raises(DomainError) as exc:
-        await create_session(repo, _config(topic=""))
-    assert exc.value.code == TOPIC_REQUIRED
+        await create_run(repo, _scenario(), RuntimeValues(topic=""))
+    assert exc.value.code == RUNTIME_VALUE_REQUIRED
 
 
 @pytest.mark.asyncio
-async def test_resume_session_reconstructs(repo):
-    created = await create_session(repo, _config())
-    resumed = await resume_session(repo, created.session_id)
-    assert resumed.session_id == created.session_id
-    assert resumed.topic == "主题"
-    assert [p.persona_id for p in resumed.personas] == ["a", "b"]
-
-
-@pytest.mark.asyncio
-async def test_resume_missing_session_raises_not_found(repo):
+async def test_create_run_rejects_missing_scenario(repo):
     with pytest.raises(DomainError) as exc:
-        await resume_session(repo, "nonexistent")
-    assert exc.value.code == NOT_FOUND
+        await create_run(repo, _scenario(name=""), RuntimeValues(topic="主题"))
+    assert exc.value.code == SCENARIO_NOT_FOUND
+
+
+# ── AC-15 / AC-15b ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_resume_run_reconstructs_from_snapshot(repo):
+    created = await create_run(repo, _scenario(), RuntimeValues(topic="主题"))
+    resumed = await resume_run(repo, created.run_id)
+    assert resumed.run_id == created.run_id
+    assert resumed.scenario.scenario == "brainstorm"
+    assert resumed.runtime.topic == "主题"
 
 
 @pytest.mark.asyncio
-async def test_read_table_ordered_and_cross_session_isolated(repo):
-    a = await create_session(repo, _config())
-    b = await create_session(repo, _config())
-    await repo.append_speech(a.session_id, "a", "第一条")
-    await repo.append_speech(a.session_id, "b", "第二条")
-    assert [s.seq for s in await read_table(repo, a.session_id)] == [1, 2]
-    assert await read_table(repo, b.session_id) == []  # 越界读：B 不含 A 的内容
+async def test_resume_missing_run_raises_not_found(repo):
+    with pytest.raises(DomainError) as exc:
+        await resume_run(repo, "nonexistent")
+    assert exc.value.code == RUN_NOT_FOUND
 
 
-def test_registry_roundtrip():
-    reg = Registry()
-    sched = RoundRobinScheduler()
-    cond = FixedRoundsStop()
-    role = object()
-    consumer = object()
-    reg.register_scheduler("round_robin", sched)
-    reg.register_stop_condition("fixed_rounds", cond)
-    reg.register_role("a", role)
-    reg.register_consumer(consumer)
-    assert reg.get_scheduler("round_robin") is sched
-    assert reg.get_stop_condition("fixed_rounds") is cond
-    assert reg.get_role("a") is role
-    assert consumer in reg.consumers
+@pytest.mark.asyncio
+async def test_resume_corrupted_run_raises(repo):
+    await repo.save_config("r1", {"scenario": "garbage"})  # 非 dict 快照
+    with pytest.raises(DomainError) as exc:
+        await resume_run(repo, "r1")
+    assert exc.value.code == RUN_CORRUPTED
+
+
+# ── AC-11 — 手动停止 ───────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_stop_run_writes_manual_recap(repo):
+    created = await create_run(repo, _scenario(), RuntimeValues(topic="主题"))
+    await repo.append_turn(created.run_id, "alice", "第一条")
+    outcome = await stop_run(repo, _Registry(), created.run_id)
+    assert outcome.recap.termination == "manual"
+    assert outcome.verdict is None
+    assert len(outcome.transcript) == 1  # 在途发言不落桌，已落桌保留
+
+
+# ── read_transcript ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_read_transcript_ordered_and_isolated(repo):
+    a = await create_run(repo, _scenario(), RuntimeValues(topic="主题"))
+    b = await create_run(repo, _scenario(), RuntimeValues(topic="主题"))
+    await repo.append_turn(a.run_id, "alice", "第一条")
+    await repo.append_turn(a.run_id, "bob", "第二条")
+    assert [t.seq for t in await read_transcript(repo, a.run_id)] == [1, 2]
+    assert await read_transcript(repo, b.run_id) == []  # 越界读不可见（AC-16/17）
