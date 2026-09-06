@@ -1,111 +1,162 @@
-"""T2 — domain types, error sentinels, extension protocols (zero weave)."""
+"""T1 — agora 领域层：中性类型、错误码、命名空间（零 weave 依赖）。
 
-import inspect
+镜像 brainstorm 的 ``test_domain.py`` 隔离断言：agora 的领域基石
+（types/errors/namespaces）必须零 weave 依赖（SAD §2 单向依赖，ADR-0002）。
+"""
+from __future__ import annotations
+
 import pathlib
-from typing import get_type_hints
+from dataclasses import FrozenInstanceError
 
 import pytest
 
-from brainstorm.business.errors import (
-    INSUFFICIENT_PERSONAS,
-    PERSONA_ROLE_REQUIRED,
-    TOPIC_REQUIRED,
+from agora.errors import (
+    INVALID_STATE,
+    OUTPUT_JUDGE_MISMATCH,
+    ROLE_DESCRIPTION_REQUIRED,
+    RUN_CORRUPTED,
+    RUN_NOT_FOUND,
+    RUNTIME_VALUE_REQUIRED,
+    SCENARIO_NOT_FOUND,
+    TURN_ALREADY_PRODUCED,
+    UNKNOWN_CAPABILITY,
     DomainError,
 )
-from brainstorm.business.protocols import (
-    Consumer,
-    Role,
-    Scheduler,
-    SchedulingDecision,
-    StopCondition,
+from agora.namespaces import (
+    STATE_KEY_CONFIG,
+    STATE_KEY_RECAP,
+    STATE_KEY_STATUS,
+    STATE_KEY_VERDICT,
+    agent_state_ns,
+    agent_stream_ns,
+    run_events_ns,
+    run_state_ns,
+    run_stream_ns,
 )
-from brainstorm.business.types import (
-    PersonaConfig,
-    SessionConfig,
-    StopConditionConfig,
+from agora.types import (
+    Agent,
+    Recap,
+    RoleConfig,
+    Run,
+    RunOutcome,
+    RuntimeValues,
+    ScenarioConfig,
+    SelectConfig,
+    StopConfig,
+    SummaryConfig,
+    Turn,
+    Verdict,
 )
-from brainstorm.business.validation import validate_config
+
+# ── 命名空间构造器 — data-model §Namespace scheme ──────────────────────
+
+def test_namespace_builders_match_scheme():
+    assert run_stream_ns("r1") == "agora:r1:stream"
+    assert run_state_ns("r1") == "agora:r1:state"
+    assert run_events_ns("r1") == "agora:r1:events:stream"
+    assert agent_stream_ns("r1", "alice") == "agora:r1:alice:stream"
+    assert agent_state_ns("r1", "alice") == "agora:r1:alice:state"
 
 
-def _config(topic="示例主题", personas=None, scheduler="round_robin", stop_type="manual"):
-    personas = personas or [
-        PersonaConfig(persona_id="alice", name="Alice", role_description="产品视角"),
-        PersonaConfig(persona_id="bob", name="Bob", role_description="技术视角"),
-    ]
-    return SessionConfig(
-        topic=topic,
-        personas=personas,
-        scheduler=scheduler,
-        stop_condition=StopConditionConfig(type=stop_type),
+def test_state_keys_registered():
+    assert STATE_KEY_CONFIG == "config"
+    assert STATE_KEY_STATUS == "status"
+    assert STATE_KEY_VERDICT == "verdict"
+    assert STATE_KEY_RECAP == "recap"
+
+
+# ── DomainError 信封 — public-api.md §3 ────────────────────────────────
+
+def test_domain_error_to_dict_no_details():
+    err = DomainError("agora.run_not_found", "会话不存在")
+    assert err.to_dict() == {"code": "agora.run_not_found", "message": "会话不存在"}
+
+
+def test_domain_error_to_dict_with_details():
+    err = DomainError("agora.run_not_found", "会话不存在", {"run_id": "r1"})
+    assert err.to_dict()["details"] == {"run_id": "r1"}
+
+
+def test_nine_error_codes_registered_with_neutral_prefix():
+    codes = {
+        UNKNOWN_CAPABILITY,
+        ROLE_DESCRIPTION_REQUIRED,
+        OUTPUT_JUDGE_MISMATCH,
+        SCENARIO_NOT_FOUND,
+        RUNTIME_VALUE_REQUIRED,
+        RUN_NOT_FOUND,
+        RUN_CORRUPTED,
+        INVALID_STATE,
+        TURN_ALREADY_PRODUCED,
+    }
+    assert len(codes) == 9
+    assert all(code.startswith("agora.") for code in codes)
+
+
+# ── frozen dataclass 类型 — public-api.md §2 ────────────────────────────
+
+def _scenario():
+    return ScenarioConfig(
+        scenario="brainstorm",
+        roles=[RoleConfig(id="alice", prompt="产品视角")],
+        select=SelectConfig(type="round_robin"),
+        stop=StopConfig(type="fixed_rounds", max=3),
     )
 
 
-# ── validate_config — AC-02 / AC-03 / AC-13 ──────────────────────────
-
-def test_empty_topic_is_rejected_with_topic_required():
-    with pytest.raises(DomainError) as exc:
-        validate_config(_config(topic=""))
-    assert exc.value.code == TOPIC_REQUIRED
-
-
-def test_whitespace_topic_is_rejected():
-    with pytest.raises(DomainError) as exc:
-        validate_config(_config(topic="   "))
-    assert exc.value.code == TOPIC_REQUIRED
-
-
-def test_fewer_than_two_unique_personas_is_rejected():
-    dupes = [
-        PersonaConfig(persona_id="alice", name="Alice", role_description="产品视角"),
-        PersonaConfig(persona_id="alice", name="Alice", role_description="产品视角"),
-    ]
-    with pytest.raises(DomainError) as exc:
-        validate_config(_config(personas=dupes))
-    assert exc.value.code == INSUFFICIENT_PERSONAS
-
-
-def test_missing_role_description_is_rejected():
-    personas = [
-        PersonaConfig(persona_id="alice", name="Alice", role_description="产品视角"),
-        PersonaConfig(persona_id="bob", name="Bob", role_description=""),
-    ]
-    with pytest.raises(DomainError) as exc:
-        validate_config(_config(personas=personas))
-    assert exc.value.code == PERSONA_ROLE_REQUIRED
-
-
-def test_valid_config_passes():
-    validate_config(_config())  # must not raise
-
-
-# ── protocols sign as documented — public-api.md §4 ───────────────────
-
-def test_extension_protocols_sign_as_documented():
-    assert inspect.iscoroutinefunction(Role.speak)
-    speak = inspect.signature(Role.speak)
-    assert list(speak.parameters) == ["self", "ctx"]
-    assert get_type_hints(Role.speak)["return"] is str
-
-    assert inspect.iscoroutinefunction(Scheduler.next_speaker)
-    sched = inspect.signature(Scheduler.next_speaker)
-    assert list(sched.parameters) == ["self", "ctx"]
-    assert get_type_hints(Scheduler.next_speaker)["return"] is SchedulingDecision
-
-    stop = inspect.signature(StopCondition.evaluate)
-    assert list(stop.parameters) == ["self", "ctx"]
-
-    consume = inspect.signature(Consumer.on_event)
-    assert list(consume.parameters) == ["self", "event"]
-
-
-# ── zero weave dependency — sad §2 / ADR-0002 ──────────────────────────
-
-def test_business_has_no_weave_import():
-    business_dir = (
-        pathlib.Path(__file__).resolve().parent.parent / "brainstorm" / "business"
+def test_run_is_frozen_dataclass():
+    run = Run(
+        run_id="r1",
+        scenario=_scenario(),
+        runtime=RuntimeValues(topic="示例主题"),
     )
-    files = list(business_dir.glob("*.py"))
-    assert files, "business package is empty"
-    for path in files:
+    assert run.run_id == "r1"
+    assert run.status == "running"
+    assert run.current_seq == 0
+    assert run.verdict is None
+    assert run.recap is None
+    with pytest.raises(FrozenInstanceError):
+        run.run_id = "r2"  # type: ignore[misc]
+
+
+def test_turn_agent_verdict_recap_shapes():
+    turn = Turn(run_id="r1", seq=1, agent_id="alice", text="发言")
+    assert turn.seq == 1 and turn.agent_id == "alice"
+
+    agent = Agent(run_id="r1", agent_id="alice", role_description="产品视角")
+    assert agent.role_description == "产品视角"
+
+    verdict = Verdict(converged=True, conclusion="结论")
+    assert verdict.converged and verdict.conclusion == "结论"
+
+    recap = Recap(termination="converged", recap="总结")
+    assert recap.termination == "converged"
+
+
+def test_run_outcome_carries_transcript():
+    outcome = RunOutcome(
+        run_id="r1",
+        status="stopped",
+        verdict=Verdict(converged=True, conclusion="结论"),
+        recap=Recap(termination="converged", recap="总结"),
+        transcript=[Turn(run_id="r1", seq=1, agent_id="alice", text="发言")],
+    )
+    assert len(outcome.transcript) == 1
+
+
+def test_summary_config_minimal_shape():
+    summary = SummaryConfig(role="judge", key="summary", window=20)
+    assert summary.role == "judge"
+    assert summary.key == "summary"
+    assert summary.window == 20
+
+
+# ── 零 weave 依赖 — SAD §2 / ADR-0002 ──────────────────────────────────
+
+def test_agora_domain_has_no_weave_import():
+    agora_dir = pathlib.Path(__file__).resolve().parent.parent / "agora"
+    for name in ("types.py", "errors.py", "namespaces.py"):
+        path = agora_dir / name
+        assert path.exists(), f"{name} missing"
         text = path.read_text(encoding="utf-8")
-        assert "import weave" not in text and "from weave" not in text, path.name
+        assert "import weave" not in text and "from weave" not in text, name
