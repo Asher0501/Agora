@@ -1,43 +1,59 @@
-"""Contract tests — library-sdk surface + error sentinels (public-api.md §3/§5)."""
+"""Contract tests — library-sdk surface + error sentinels (public-api §3/§5)."""
+from __future__ import annotations
 
 import inspect
 
-import brainstorm
-from brainstorm import Registry
+from agora.errors import (
+    INVALID_STATE,
+    OUTPUT_JUDGE_MISMATCH,
+    ROLE_DESCRIPTION_REQUIRED,
+    RUN_CORRUPTED,
+    RUN_NOT_FOUND,
+    RUNTIME_VALUE_REQUIRED,
+    SCENARIO_NOT_FOUND,
+    TURN_ALREADY_PRODUCED,
+    UNKNOWN_CAPABILITY,
+)
 
 
 def test_error_sentinels_match_contract():
     expected = {
-        "session.topic_required",
-        "session.insufficient_personas",
-        "session.persona_role_required",
-        "session.round_quota_exhausted",
-        "session.not_found",
-        "session.invalid_state",
+        "agora.unknown_capability",
+        "agora.role_description_required",
+        "agora.output_judge_mismatch",
+        "agora.scenario_not_found",
+        "agora.runtime_value_required",
+        "agora.run_not_found",
+        "agora.run_corrupted",
+        "agora.invalid_state",
+        "agora.turn_already_produced",
     }
     actual = {
-        brainstorm.TOPIC_REQUIRED,
-        brainstorm.INSUFFICIENT_PERSONAS,
-        brainstorm.PERSONA_ROLE_REQUIRED,
-        brainstorm.ROUND_QUOTA_EXHAUSTED,
-        brainstorm.NOT_FOUND,
-        brainstorm.INVALID_STATE,
+        UNKNOWN_CAPABILITY,
+        ROLE_DESCRIPTION_REQUIRED,
+        OUTPUT_JUDGE_MISMATCH,
+        SCENARIO_NOT_FOUND,
+        RUNTIME_VALUE_REQUIRED,
+        RUN_NOT_FOUND,
+        RUN_CORRUPTED,
+        INVALID_STATE,
+        TURN_ALREADY_PRODUCED,
     }
     assert actual == expected
 
 
 def test_engine_operations_are_async():
-    for name in ("create_session", "resume_session", "run_session", "stop_session", "read_table"):
-        op = getattr(brainstorm, name)
-        assert inspect.iscoroutinefunction(op), name
+    from agora.relay import relay
+    from agora.session import create_run, read_transcript, resume_run, stop_run
+
+    for op in (create_run, resume_run, relay, stop_run, read_transcript):
+        assert inspect.iscoroutinefunction(op), op.__name__
 
 
-def test_registry_extension_points_exist():
-    reg = Registry()
-    for name in (
-        "register_role",
-        "register_scheduler",
-        "register_stop_condition",
-        "register_consumer",
-    ):
-        assert callable(getattr(reg, name)), name
+def test_registry_provides_known_capabilities():
+    from agora.wiring import build_registry
+
+    reg = build_registry()
+    assert "round_robin" in reg.known_capabilities()
+    assert "llm_verdict" in reg.known_capabilities()
+    assert "fixed_rounds" in reg.known_capabilities()

@@ -1,49 +1,12 @@
-"""T10 — manual stop (stop_session) with in-flight safety (AC-11/11b)."""
-
-import asyncio
+"""手动停止（stop_run，AC-11）。"""
+from __future__ import annotations
 
 import pytest
-from weave.llm.base import LLMResponse
 
-from brainstorm.business.types import PersonaConfig, SessionConfig, StopConditionConfig
-from brainstorm.engine.loop import run_session
-from brainstorm.engine.registry import Registry
-from brainstorm.engine.session import create_session
-from brainstorm.engine.stop import stop_session
-from brainstorm.extensions.schedulers.round_robin import RoundRobinScheduler
-from brainstorm.extensions.stop_conditions.manual import ManualStop
-from brainstorm.weave_adapter.persona_agent import FakeLLM, PersonaRole
-from brainstorm.weave_adapter.repository import Repository
-
-
-class SlowLLM:
-    """A slow LLM so a stop can land mid-generation."""
-
-    async def chat(self, messages, tools=None, max_tokens=4096, temperature=0.7):
-        await asyncio.sleep(0.1)
-        return LLMResponse(content="慢速发言")
-
-    async def chat_stream(self, messages, tools=None, max_tokens=4096, temperature=0.7):
-        await asyncio.sleep(0.1)
-        yield "慢速发言"
-
-
-def _config():
-    return SessionConfig(
-        topic="主题",
-        personas=[PersonaConfig("a", "A", "产品"), PersonaConfig("b", "B", "技术")],
-        scheduler="round_robin",
-        stop_condition=StopConditionConfig(type="manual"),
-    )
-
-
-def _registry(llm=FakeLLM()):
-    registry = Registry()
-    for pid, name, role in [("a", "A", "产品"), ("b", "B", "技术")]:
-        registry.register_role(pid, PersonaRole(pid, name, role, llm, 20))
-    registry.register_scheduler("round_robin", RoundRobinScheduler())
-    registry.register_stop_condition("manual", ManualStop())
-    return registry
+from agora.adapter.llm import FakeLLM
+from agora.adapter.repository import Repository
+from agora.session import create_run, stop_run
+from agora.types import RoleConfig, RuntimeValues, ScenarioConfig, SelectConfig, StopConfig
 
 
 @pytest.fixture
@@ -53,57 +16,40 @@ def repo(tmp_path):
     r.close()
 
 
-async def _wait_for_speeches(repo, session_id, n, timeout=2.0):
-    import time
+class _Registry:
+    def __init__(self):
+        self.llm = FakeLLM()
+        self.capabilities = {}
+        self.observers = []
 
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if len(await repo.read_table(session_id)) >= n:
-            return
-        await asyncio.sleep(0.01)
-    raise AssertionError("timeout waiting for speeches")
+
+def _scenario():
+    return ScenarioConfig(
+        scenario="brainstorm",
+        roles=[RoleConfig(id="a", prompt="你是{name}。主题：{topic}", inject=["topic"], output="free_text")],
+        select=SelectConfig(type="round_robin"),
+        stop=StopConfig(type="manual"),
+    )
 
 
 @pytest.mark.asyncio
-async def test_stop_session_immediate_without_loop(repo):
-    registry = _registry()
-    session = await create_session(repo, _config())
-
-    outcome = await stop_session(repo, registry, session.session_id)
-
+async def test_stop_immediate_without_loop(repo):
+    run = await create_run(repo, _scenario(), RuntimeValues(topic="主题"))
+    outcome = await stop_run(repo, _Registry(), run.run_id)
     assert outcome.status == "stopped"
-    assert outcome.speeches == []
-    assert outcome.converged is False
+    assert outcome.transcript == []
+    assert outcome.recap.termination == "manual"
 
 
 @pytest.mark.asyncio
-async def test_stop_session_ends_and_retains_record(repo):
-    registry = _registry(SlowLLM())
-    session = await create_session(repo, _config())
-    task = asyncio.create_task(run_session(repo, registry, session.session_id))
-
-    await _wait_for_speeches(repo, session.session_id, 3)
-    outcome = await stop_session(repo, registry, session.session_id)
-    await task
-
-    assert outcome.status == "stopped"
-    assert len(outcome.speeches) >= 3
+async def test_stop_retains_landed_record(repo):
+    run = await create_run(repo, _scenario(), RuntimeValues(topic="主题"))
+    await repo.append_turn(run.run_id, "a", "已落桌发言")
+    outcome = await stop_run(repo, _Registry(), run.run_id)
+    assert len(outcome.transcript) == 1  # 已落桌保留
 
 
-@pytest.mark.asyncio
-async def test_stop_waits_for_inflight_speech(repo):
-    registry = _registry(SlowLLM())
-    session = await create_session(repo, _config())
-    task = asyncio.create_task(run_session(repo, registry, session.session_id))
-
-    await asyncio.sleep(0.05)  # 生成在途
-    outcome = await stop_session(repo, registry, session.session_id)
-    await task
-
-    assert len(outcome.speeches) >= 1  # 在途发言已落桌，未丢失
-
-
-class RecordingConsumer:
+class _Recorder:
     def __init__(self):
         self.events = []
 
@@ -112,12 +58,10 @@ class RecordingConsumer:
 
 
 @pytest.mark.asyncio
-async def test_stop_without_loop_emits_stopped_event(repo):
-    registry = _registry()
-    consumer = RecordingConsumer()
-    registry.register_consumer(consumer)
-    session = await create_session(repo, _config())
-
-    await stop_session(repo, registry, session.session_id)
-
-    assert [e.name for e in consumer.events] == ["session.stopped"]
+async def test_stop_emits_stopped_event(repo):
+    run = await create_run(repo, _scenario(), RuntimeValues(topic="主题"))
+    registry = _Registry()
+    recorder = _Recorder()
+    registry.observers.append(recorder)
+    await stop_run(repo, registry, run.run_id)
+    assert [e.name for e in recorder.events] == ["run.stopped"]

@@ -1,160 +1,66 @@
-"""T9 — moderator scheduler + convergence stop condition (AC-07/07b/08/10/10b)."""
+"""选人/判停原子（llm_pick / llm_verdict，moderator 的拆分等价）。"""
+from __future__ import annotations
 
 import pytest
 
-from brainstorm.business.protocols import SchedulerContext, StopConditionContext
-from brainstorm.business.types import PersonaConfig, SessionConfig, StopConditionConfig
-from brainstorm.engine.loop import run_session
-from brainstorm.engine.registry import Registry
-from brainstorm.engine.session import create_session
-from brainstorm.extensions.schedulers.moderator import ModeratorScheduler
-from brainstorm.extensions.stop_conditions.convergence import ConvergenceStop
-from brainstorm.weave_adapter.persona_agent import FakeLLM, PersonaRole
-from brainstorm.weave_adapter.repository import Repository
+from agora.atoms import LlmPickSelector, LlmVerdictTerminator
+from agora.types import Agent, RoleConfig
 
 
-class StubRouter:
-    """A deterministic router that replays a scripted sequence of decisions."""
+class _SeqLLM:
+    """按脚本序列返回决策（模拟 router）。"""
 
-    def __init__(self, decisions):
-        self.decisions = decisions
-        self.i = 0
+    def __init__(self, replies):
+        self._replies = list(replies)
+        self._i = 0
 
-    async def speak(self, ctx):
-        d = self.decisions[self.i % len(self.decisions)]
-        self.i += 1
-        return d
-
-
-def _personas():
-    return [
-        PersonaConfig(persona_id="a", role_description="产品"),
-        PersonaConfig(persona_id="b", role_description="技术"),
-    ]
+    async def complete(self, prompt: str) -> str:
+        reply = self._replies[min(self._i, len(self._replies) - 1)]
+        self._i += 1
+        return reply
 
 
-def _sched_ctx(last_speaker_id="a"):
-    return SchedulerContext(
-        session_id="s",
-        topic="主题",
-        personas=_personas(),
-        last_speaker_id=last_speaker_id,
-        current_seq=1,
-        history=[],
-    )
+def _roster(*ids: str):
+    return [Agent(run_id="r", agent_id=i, role_description="") for i in ids]
 
 
-# ── ModeratorScheduler.next_speaker ───────────────────────────────
+def _picker():
+    return RoleConfig(id="mod", prompt="选下一位：{history}", inject=["history"], output="pick_next")
+
+
+def _judge():
+    return RoleConfig(id="judge", prompt="判收敛：{history}", inject=["history"], output="verdict")
+
 
 @pytest.mark.asyncio
-async def test_moderator_picks_valid_speaker():
-    mod = ModeratorScheduler(StubRouter(["NEXT: b"]))
-    decision = await mod.next_speaker(_sched_ctx())
-    assert decision.speaker_id == "b"
+async def test_llm_pick_selects_valid_speaker():
+    sel = LlmPickSelector(_SeqLLM(["NEXT: b"]), _picker())
+    decision = await sel.next(_roster("a", "b"), [])
+    assert decision.agent_id == "b"
     assert decision.converged is False
 
 
 @pytest.mark.asyncio
-async def test_moderator_invalid_choice_falls_back():
-    mod = ModeratorScheduler(StubRouter(["NEXT: zzz"]))
-    decision = await mod.next_speaker(_sched_ctx())  # last=a → fallback b
+async def test_llm_pick_invalid_choice_flags():
+    sel = LlmPickSelector(_SeqLLM(["NEXT: zzz"]), _picker())
+    decision = await sel.next(_roster("a", "b"), [])
     assert decision.invalid_choice == "zzz"
-    assert decision.speaker_id == "b"
 
 
 @pytest.mark.asyncio
-async def test_moderator_converges_with_conclusion():
-    mod = ModeratorScheduler(StubRouter(["CONVERGE: 结论是X"]))
-    decision = await mod.next_speaker(_sched_ctx())
+async def test_llm_pick_converges_with_conclusion():
+    sel = LlmPickSelector(_SeqLLM(["CONVERGE: 结论是X"]), _picker())
+    decision = await sel.next(_roster("a", "b"), [])
     assert decision.converged is True
     assert decision.conclusion == "结论是X"
 
 
-# ── ConvergenceStop.evaluate ─────────────────────────────────────
-
-def test_convergence_stop_cap_and_converged():
-    cond = ConvergenceStop()
-    # 未收敛且未达上限 → 继续
-    assert cond.evaluate(
-        StopConditionContext(session_id="s", current_seq=3, max_speeches=4)
-    ).stop is False
-    # 达上限仍未收敛 → 强制结束（未收敛，AC-10b）
-    cap = cond.evaluate(StopConditionContext(session_id="s", current_seq=4, max_speeches=4))
-    assert cap.stop is True
-    assert cap.converged is False
-    # 已收敛 → 结束并附结论（AC-08/AC-10）
-    done = cond.evaluate(
-        StopConditionContext(
-            session_id="s", current_seq=2, max_speeches=10, converged=True, conclusion="结论"
-        )
-    )
-    assert done.stop is True
-    assert done.converged is True
-    assert done.conclusion == "结论"
-
-
-# ── full loop through the moderator ───────────────────────────────
-
-def _config(stop_type="convergence", max_speeches=10):
-    return SessionConfig(
-        topic="主题",
-        personas=_personas(),
-        scheduler="moderator",
-        stop_condition=StopConditionConfig(type=stop_type, max_speeches=max_speeches),
-    )
-
-
-def _registry(router):
-    registry = Registry()
-    registry.register_role("a", PersonaRole("a", "A", "产品", FakeLLM(), 20))
-    registry.register_role("b", PersonaRole("b", "B", "技术", FakeLLM(), 20))
-    registry.register_scheduler("moderator", ModeratorScheduler(router))
-    registry.register_stop_condition("convergence", ConvergenceStop())
-    return registry
-
-
-@pytest.fixture
-def repo(tmp_path):
-    r = Repository(tmp_path / "m.db")
-    yield r
-    r.close()
-
-
 @pytest.mark.asyncio
-async def test_convergence_happy_path(repo):
-    config = _config()
-    registry = _registry(StubRouter(["NEXT: a", "NEXT: b", "CONVERGE: 结论是X"]))
-    session = await create_session(repo, config)
+async def test_llm_verdict_converge_and_cap():
+    converge = LlmVerdictTerminator(_SeqLLM(["CONVERGE: 结论"]), _judge())
+    d = await converge.should_stop({"current_seq": 1, "max": 20, "transcript": []})
+    assert d.stop is True and d.converged is True and d.conclusion == "结论"
 
-    outcome = await run_session(repo, registry, session.session_id)
-
-    assert outcome.converged is True
-    assert outcome.conclusion == "结论是X"
-    assert [s.speaker_id for s in outcome.speeches] == ["a", "b"]
-
-
-@pytest.mark.asyncio
-async def test_convergence_cap_force_stop_not_converged(repo):
-    config = _config(max_speeches=3)
-    registry = _registry(StubRouter(["NEXT: a", "NEXT: b", "NEXT: a", "NEXT: b"]))
-    session = await create_session(repo, config)
-
-    outcome = await run_session(repo, registry, session.session_id)
-
-    assert outcome.converged is False
-    assert len(outcome.speeches) == 3
-
-
-@pytest.mark.asyncio
-async def test_invalid_choice_is_persisted(repo):
-    config = _config(max_speeches=2)
-    registry = _registry(StubRouter(["NEXT: zzz"]))
-    session = await create_session(repo, config)
-
-    outcome = await run_session(repo, registry, session.session_id)
-
-    events = await repo.read_events(session.session_id)
-    invalid = [e for e in events if e.get("type") == "invalid_choice"]
-    assert invalid  # 至少一条无效选择已落库（AC-07b）
-    assert invalid[0]["speaker_id"] == "zzz"
-    assert outcome.converged is False
+    cap = LlmVerdictTerminator(_SeqLLM(["CONTINUE"]), _judge())
+    d2 = await cap.should_stop({"current_seq": 4, "max": 4, "transcript": []})
+    assert d2.stop is True and d2.termination == "cap_unconverged" and d2.converged is False

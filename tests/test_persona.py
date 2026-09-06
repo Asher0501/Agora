@@ -1,49 +1,43 @@
-"""T4 — PersonaRole + FakeLLM (AC-04 generation side)."""
+"""产出侧（render 注入 + FakeLLM 离线 + 私有状态隔离）。"""
+from __future__ import annotations
 
 import pytest
 
-from brainstorm.business.protocols import RoleContext
-from brainstorm.business.types import Speech
-from brainstorm.weave_adapter.persona_agent import (
-    FakeLLM,
-    PersonaPrivateMemory,
-    PersonaRole,
-)
-from brainstorm.weave_adapter.repository import Repository
+from agora.adapter.llm import FakeLLM
+from agora.adapter.repository import Repository
+from agora.atoms import render
+from agora.types import Turn
 
 
-def _history(n: int) -> list[Speech]:
-    return [Speech(seq=i, speaker_id=f"p{i}", text=f"发言{i}") for i in range(1, n + 1)]
+def _history(n: int) -> list[Turn]:
+    return [Turn(run_id="r", seq=i, agent_id=f"p{i}", text=f"发言{i}") for i in range(1, n + 1)]
 
 
-@pytest.mark.asyncio
-async def test_speak_references_topic_and_history():
-    role = PersonaRole("alice", "Alice", "产品视角", FakeLLM(), window_size=20)
-    ctx = RoleContext(topic="如何提升留存", history=_history(1), private_memory=None)
-    text = await role.speak(ctx)
-    assert "如何提升留存" in text  # 针对主题
-    assert "p1" in text  # 承接历史发言
+def test_render_injects_topic_and_history():
+    out = render("主题：{topic}\n历史：{history}", {"topic": "如何提升留存", "history": _history(1)}, 20)
+    assert "如何提升留存" in out
+    assert "p1" in out
 
 
-@pytest.mark.asyncio
-async def test_history_truncated_to_window():
-    role = PersonaRole("alice", "Alice", "产品视角", FakeLLM(), window_size=2)
-    ctx = RoleContext(topic="主题", history=_history(5), private_memory=None)
-    text = await role.speak(ctx)
-    assert "2 条历史" in text  # 只注入最近 2 条
-    assert "p5" in text  # 最近的发言者在场
-    assert "p1" not in text  # 早期历史被截断
+def test_render_truncates_history_to_window():
+    out = render("{history}", {"history": _history(5)}, 2)
+    assert "p5" in out
+    assert "p1" not in out
 
 
 @pytest.mark.asyncio
-async def test_private_memory_handle_is_persona_scoped(tmp_path):
+async def test_fake_llm_is_offline_deterministic():
+    fake = FakeLLM()
+    assert await fake.complete("任意") == "离线回复"
+    assert await fake.complete("任意") == await fake.complete("任意")
+
+
+@pytest.mark.asyncio
+async def test_private_memory_agent_scoped(tmp_path):
     repo = Repository(tmp_path / "m.db")
     try:
-        mem = PersonaPrivateMemory(repo, "s1", "alice")
-        await mem.write("draft", "我的草稿")
-        assert await mem.read("draft") == "我的草稿"
-        # 同一会话其他人设不可见
-        other = PersonaPrivateMemory(repo, "s1", "bob")
-        assert await other.read("draft") is None
+        await repo.write_private("s1", "alice", "draft", "我的草稿")
+        assert await repo.read_private("s1", "alice", "draft") == "我的草稿"
+        assert await repo.read_private("s1", "bob", "draft") is None
     finally:
         repo.close()
