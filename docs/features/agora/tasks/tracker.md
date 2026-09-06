@@ -20,5 +20,14 @@
 | T13 | brainstorm 迁移 | wiring | Asher | M | T11, T12 | done |
 | T14 | brainstorm 58 测试回归 | tests | Asher | L | T13 | done |
 | T15 | NFR/一致性/并发测试 | tests | Asher | M | T11 | done |
+| T16 | 修复 AC-06 同 turn 守卫 | infra | Asher | S | — | done |
+| T17 | 修复 AC-11 停止握手 | app | Asher | M | — | done |
+| T18 | 接通 AC-14 扩展区 | app | Asher | S | — | done |
+| T19 | 对齐 AC-18 observe | ports | Asher | S | — | done |
+| T20 | 失控守卫（封顶+max必填） | app | Asher | M | — | done |
+| T21 | 配置标量类型校验 | app | Asher | S | T20 | done |
+| T22 | 声明 weave-agent-sdk | wiring | Asher | S | — | done |
+| T23 | 文档漂移收口 | docs | Asher | S | — | done |
+| T24 | 测试缺口补全 | tests | Asher | M | T20 | done |
 
-**Total:** 15 tasks, ~17 person-days（单人 Asher；L 规模，约 3–4 周）。
+**Total:** 24 tasks（T16–T24 为 review 反馈的 14 项修复，交回 implement）。

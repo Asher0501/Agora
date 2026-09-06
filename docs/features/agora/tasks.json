@@ -1,0 +1,221 @@
+{
+  "slug": "agora",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "建立中性领域类型、错误码与命名空间",
+      "layer": "domain",
+      "deps": [],
+      "acs": [],
+      "dod": "frozen dataclass（Run/Turn/Agent/ScenarioConfig 等）与 9 个中性 agora.* 错误码、5 个命名空间构造器落位，tests/test_domain.py 断言 business 层零 weave 依赖且命名空间串精确匹配。",
+      "files_hint": ["agora/types.py", "agora/errors.py", "agora/namespaces.py"]
+    },
+    {
+      "id": "T2",
+      "title": "定义五原子协议、产出/解析与闭集菜单原子",
+      "layer": "domain",
+      "deps": ["T1"],
+      "acs": [],
+      "dod": "6 个原子协议（LLM/Selector/Terminator/StreamStore/StateStore/Summarizer）+ render/parse + 5 个菜单原子（round_robin/llm_pick/fixed_rounds/llm_verdict/manual）落位，parse 对三种输出格式与解析失败（parse_failure）的单测全绿。",
+      "files_hint": ["agora/atoms.py"]
+    },
+    {
+      "id": "T3",
+      "title": "实现 SQLite Repository 适配（weave memory_entries）",
+      "layer": "infra",
+      "deps": ["T1", "T2"],
+      "acs": ["AC-16", "AC-17"],
+      "dod": "Repository 实现 StreamStore/StateStore，读写走 agora:{run_id}:* 命名空间、按 seq 有序读转录，越 namespace 查询返回空（隔离断言测试全绿）。",
+      "files_hint": ["agora/adapter/repository.py"]
+    },
+    {
+      "id": "T4",
+      "title": "实现 LLM 适配（BaseLLM + FakeLLM）",
+      "layer": "infra",
+      "deps": ["T2"],
+      "acs": [],
+      "dod": "BaseLLM 适配 weave BaseLLM（deepseek/anthropic/openai 可插拔）+ FakeLLM 离线确定性输出，单测不触网即通过。",
+      "files_hint": ["agora/adapter/llm.py"]
+    },
+    {
+      "id": "T5",
+      "title": "实现配置 schema 与加载时校验",
+      "layer": "app",
+      "deps": ["T1", "T2"],
+      "acs": ["AC-03", "AC-04", "AC-13"],
+      "dod": "parse_config/validate_config/load_config 对全部已知非法类别（未知能力 AC-03、角色缺描述 AC-04、output↔select/stop 不匹配 AC-13、events 保留字、占位符/inject 不匹配）100% 拒绝并给出可读 agora.* 错误，校验测试全绿。",
+      "files_hint": ["agora/config/schema.py", "agora/config/validator.py", "agora/config/__init__.py"]
+    },
+    {
+      "id": "T6",
+      "title": "实现扩展区注册（register_capability）",
+      "layer": "app",
+      "deps": ["T2"],
+      "acs": ["AC-14"],
+      "dod": "register_capability 先注册后加载，未注册即拒；自定义能力在场景中生效且标准菜单不受影响（AC-14 单测全绿）。",
+      "files_hint": ["agora/extension.py"]
+    },
+    {
+      "id": "T7",
+      "title": "实现接力循环（选人→判停→产出→落桌）",
+      "layer": "app",
+      "deps": ["T2", "T3", "T4", "T6"],
+      "acs": ["AC-05", "AC-06", "AC-07", "AC-07b", "AC-08", "AC-09", "AC-10b", "AC-18"],
+      "dod": "relay 按 ADR-0007 顺序每轮选人→判停→（未停才）产出→落桌，AC-05/06/07/07b/08/09/10b 的循环单测全绿且按序落桌无重复，进度事件（AC-18）按 run 作用域发射。",
+      "files_hint": ["agora/relay.py"]
+    },
+    {
+      "id": "T8",
+      "title": "实现会话生命周期（create/resume/stop/read）",
+      "layer": "app",
+      "deps": ["T1", "T3", "T5"],
+      "acs": ["AC-02", "AC-02b", "AC-11", "AC-15", "AC-15b"],
+      "dod": "create_run 校验运行时值/场景存在并写 config 快照（AC-02/02b），resume_run 按快照恢复且缺失/损坏即拒（AC-15/15b），stop_run 取消在途并写「手动停止」总结（AC-11），read_transcript 按 seq 有序，生命周期单测全绿。",
+      "files_hint": ["agora/session.py"]
+    },
+    {
+      "id": "T9",
+      "title": "实现摘要原子与跨轮连续性",
+      "layer": "app",
+      "deps": ["T2", "T5", "T7"],
+      "acs": ["AC-12"],
+      "dod": "为配置了 summary 的角色在产出前压缩共享转录→写入其私有 state→注入后续发言（AC-12），最小 SummaryConfig 形状（role/key/window）落位并被 schema 校验，摘要单测全绿。",
+      "files_hint": ["agora/atoms.py", "agora/relay.py", "agora/config/schema.py"]
+    },
+    {
+      "id": "T10",
+      "title": "实现 CLI 命令（run/stop/resume/observe）",
+      "layer": "ports",
+      "deps": ["T7", "T8", "T5"],
+      "acs": [],
+      "dod": "argparse 四个命令按 contracts/cli.md 工作，退出码 0/1/2 正确，run 缺 topic 退出 1、observe 流式打印本 run 事件，命令级 e2e 测试全绿。",
+      "files_hint": ["agora/cli/__init__.py"]
+    },
+    {
+      "id": "T11",
+      "title": "装配包导出、DI 与 pyproject",
+      "layer": "wiring",
+      "deps": ["T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10"],
+      "acs": [],
+      "dod": "agora/__init__.py 导出公开表面（types/atoms/relay/session/config/extension/errors/namespaces），wiring.py 注册菜单原子与装配 repository/LLM/registry，pyproject 增加 agora 包与 agora=agora.cli:main 入口，import agora + CLI 入口可跑。",
+      "files_hint": ["agora/__init__.py", "agora/wiring.py", "pyproject.toml"]
+    },
+    {
+      "id": "T12",
+      "title": "编写 brainstorm.yaml 场景配置",
+      "layer": "docs",
+      "deps": ["T5", "T2"],
+      "acs": [],
+      "dod": "scenarios/brainstorm.yaml 用纯 YAML 复现 brainstorm 的能力集合（角色/选人/判停/产出），通过 load_config 校验并被一个配置加载测试断言合法。",
+      "files_hint": ["scenarios/brainstorm.yaml"]
+    },
+    {
+      "id": "T13",
+      "title": "迁移 brainstorm 包为场景消费方",
+      "layer": "wiring",
+      "deps": ["T11", "T12"],
+      "acs": [],
+      "dod": "brainstorm/ 的领域类型/命名空间/错误码/引擎/CLI 移除或改为消费 agora，brainstorm 的 session.*/brainstorm:/persona: 与 Session/Speech/Persona 不再存在，旧包不 import 引擎代码。",
+      "files_hint": ["brainstorm/", "pyproject.toml"]
+    },
+    {
+      "id": "T14",
+      "title": "迁移 brainstorm 回归测试（58 测试绿）",
+      "layer": "tests",
+      "deps": ["T13"],
+      "acs": ["AC-01"],
+      "dod": "brainstorm 的 58 个测试迁移到 agora + brainstorm.yaml 全部转绿（AC-01 零代码扩展实证），无残留 brainstorm 引擎 import。",
+      "files_hint": ["tests/"]
+    },
+    {
+      "id": "T15",
+      "title": "编写 NFR/一致性/并发测试",
+      "layer": "tests",
+      "deps": ["T11"],
+      "acs": [],
+      "dod": "tests/test_nfr.py 覆盖追加顺序不变量（0 丢失/0 重复，QG-2）、≥5 并发会话隔离（QG-5）、每轮编排与读转录 p95 插桩断言（QG-4，冒烟口径），全绿。",
+      "files_hint": ["tests/test_nfr.py"]
+    },
+    {
+      "id": "T16",
+      "title": "修复 AC-06 同 turn 二次产出守卫",
+      "layer": "infra",
+      "deps": [],
+      "acs": ["AC-06"],
+      "dod": "Repository.append_turn 对重复 seq 抛 TURN_ALREADY_PRODUCED（每 turn 恰好一条，Flow 6）；测试断言同 turn 二次产出被拒且第二条不落桌。",
+      "files_hint": ["agora/adapter/repository.py", "tests/test_repository.py"]
+    },
+    {
+      "id": "T17",
+      "title": "修复 AC-11 停止握手（在途取消不落桌）",
+      "layer": "app",
+      "deps": [],
+      "acs": ["AC-11"],
+      "dod": "stop_run 保留 stop_requested 不被覆盖；relay 产出后重读状态、已停则丢弃在途发言不落桌；gated-LLM 测试断言并发 stop 时在途发言不落桌、终止标注 manual。",
+      "files_hint": ["agora/session.py", "agora/relay.py", "tests/test_stop.py"]
+    },
+    {
+      "id": "T18",
+      "title": "接通 AC-14 扩展区（Registry 兼容）",
+      "layer": "app",
+      "deps": [],
+      "acs": ["AC-14"],
+      "dod": "register_capability/known_capabilities 兼容 Registry 对象（非仅 dict）；e2e 测试断言注册的自定义 selector 经 relay 生效且标准菜单不受影响。",
+      "files_hint": ["agora/extension.py", "agora/wiring.py", "tests/test_extension.py"]
+    },
+    {
+      "id": "T19",
+      "title": "对齐 AC-18 observe 命令契约",
+      "layer": "ports",
+      "deps": [],
+      "acs": ["AC-18"],
+      "dod": "observe 命令语义与 cli.md §2.4 对齐（打印已落盘观测事件，非跨进程 live 进度）；测试断言 observe 打印持久化事件。",
+      "files_hint": ["agora/cli/__init__.py", "tests/test_cli.py", "docs/features/agora/contracts/cli.md"]
+    },
+    {
+      "id": "T20",
+      "title": "修复失控守卫（解析失败封顶 + stop.max 必填）",
+      "layer": "app",
+      "deps": [],
+      "acs": ["AC-09", "AC-10b"],
+      "dod": "LlmVerdictTerminator 达上限时即便裁判解析失败也 cap_unconverged；validator 要求 fixed_rounds/llm_verdict 必填正 stop.max；单测全绿。",
+      "files_hint": ["agora/atoms.py", "agora/config/validator.py", "tests/test_atoms.py", "tests/test_config.py"]
+    },
+    {
+      "id": "T21",
+      "title": "配置标量类型校验（不抛裸异常）",
+      "layer": "app",
+      "deps": ["T20"],
+      "acs": ["AC-03"],
+      "dod": "schema 对 max/window 做整型强转，非法标量抛 DomainError（不抛 TypeError/ValueError）；测试断言 parse_config 非法标量被拒且无裸异常。",
+      "files_hint": ["agora/config/schema.py", "agora/config/validator.py", "tests/test_config.py"]
+    },
+    {
+      "id": "T22",
+      "title": "声明 weave-agent-sdk 运行时依赖",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "pyproject.toml 声明 weave-agent-sdk>=0.2.0；import agora.cli 不因缺依赖失败。",
+      "files_hint": ["pyproject.toml"]
+    },
+    {
+      "id": "T23",
+      "title": "收口文档漂移（SummaryConfig/错误码/session_id）",
+      "layer": "docs",
+      "deps": [],
+      "acs": [],
+      "dod": "public-api.md SummaryConfig 形状 + 错误码计数 9；data-model.md summary 形状；sad.md session_id→run_id 全扫。",
+      "files_hint": ["docs/features/agora/contracts/public-api.md", "docs/features/agora/data-model.md", "docs/features/agora/sad.md"]
+    },
+    {
+      "id": "T24",
+      "title": "补全测试缺口（OQ4 e2e/NFR 阈值/零 weave 广度）",
+      "layer": "tests",
+      "deps": ["T20"],
+      "acs": ["AC-10b"],
+      "dod": "OQ4 解析失败 e2e 测试；NFR 阈值对齐 spec + QG-5 并发比率；零 weave 依赖扫全 agora/**（除 adapter）。",
+      "files_hint": ["tests/test_loop.py", "tests/test_nfr.py", "tests/test_domain.py"]
+    }
+  ]
+}
