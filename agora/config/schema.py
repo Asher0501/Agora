@@ -6,6 +6,7 @@ from typing import Any
 
 import yaml
 
+from ..errors import INVALID_CONFIG, DomainError
 from ..types import (
     RoleConfig,
     RuntimeValues,
@@ -15,6 +16,26 @@ from ..types import (
     SummaryConfig,
 )
 from .validator import validate_config
+
+
+def _coerce_int(value: Any, field: str, default: int | None = 0) -> int | None:
+    """把整型字段（max / window）强转为 int；非整型抛可读的 ``DomainError``。
+
+    YAML 可能把数字写成字符串（``"3"``）；接受纯数字字符串并强转，拒绝非数字
+    （``"abc"`` / 浮点 / bool），保证加载时以 ``DomainError`` 拒绝而非裸
+    ``TypeError``/``ValueError``（ADR-0005 / QG-1）。
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        raise DomainError(INVALID_CONFIG, f"{field} 必须为整数（收到 {value!r}）")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if s.lstrip("-").isdigit():
+            return int(s)
+    raise DomainError(INVALID_CONFIG, f"{field} 必须为整数（收到 {value!r}）")
 
 
 def parse_config(raw: dict[str, Any], known_capabilities: set[str] | None = None) -> ScenarioConfig:
@@ -84,7 +105,7 @@ def _parse_role(raw: dict[str, Any]) -> RoleConfig:
         id=str(raw.get("id", "")),
         prompt=str(raw.get("prompt", "")),
         inject=list(raw.get("inject") or []),
-        window=int(raw.get("window") or 0),
+        window=_coerce_int(raw.get("window"), "window", 0),
         output=raw.get("output", "free_text"),
     )
 
@@ -96,7 +117,11 @@ def _parse_select(raw: dict[str, Any] | None) -> SelectConfig:
 
 def _parse_stop(raw: dict[str, Any] | None) -> StopConfig:
     raw = raw or {}
-    return StopConfig(type=raw.get("type", "manual"), max=raw.get("max"), judge=raw.get("judge"))
+    return StopConfig(
+        type=raw.get("type", "manual"),
+        max=_coerce_int(raw.get("max"), "stop.max", None),
+        judge=raw.get("judge"),
+    )
 
 
 def _parse_summary(raw: dict[str, Any] | None) -> SummaryConfig | None:
@@ -105,5 +130,5 @@ def _parse_summary(raw: dict[str, Any] | None) -> SummaryConfig | None:
     return SummaryConfig(
         role=str(raw.get("role", "")),
         key=str(raw.get("key", "")),
-        window=int(raw.get("window") or 20),
+        window=_coerce_int(raw.get("window"), "summary.window", 20),
     )

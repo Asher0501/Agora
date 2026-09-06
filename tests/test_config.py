@@ -133,6 +133,27 @@ def test_llm_verdict_requires_max():
     assert exc.value.code == INVALID_CONFIG
 
 
+# ── 标量类型校验（ADR-0005 / QG-1：不抛裸异常）──────────────────────────
+
+def test_numeric_string_max_coerced():
+    c = parse_config(_raw(stop={"type": "fixed_rounds", "max": "3"}))
+    assert c.stop.max == 3
+
+
+def test_non_numeric_max_rejected():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(stop={"type": "fixed_rounds", "max": "abc"}))
+    assert exc.value.code == INVALID_CONFIG
+
+
+def test_non_numeric_window_rejected():
+    raw = _raw()
+    raw["roles"][0]["window"] = "abc"
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == INVALID_CONFIG
+
+
 # ── 扩展能力注入（T6 前置：known_capabilities 注入）────────────────────
 
 def test_custom_capability_accepted_when_registered():
