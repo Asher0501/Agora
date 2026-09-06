@@ -18,7 +18,7 @@ from ..types import (
 from .validator import validate_config
 
 
-def _coerce_int(value: Any, field: str, default: int | None = 0) -> int | None:
+def _coerce_int(value: Any, field: str, default: int = 0) -> int:
     """把整型字段（max / window）强转为 int；非整型抛可读的 ``DomainError``。
 
     YAML 可能把数字写成字符串（``"3"``）；接受纯数字字符串并强转，拒绝非数字
@@ -117,9 +117,10 @@ def _parse_select(raw: dict[str, Any] | None) -> SelectConfig:
 
 def _parse_stop(raw: dict[str, Any] | None) -> StopConfig:
     raw = raw or {}
+    raw_max = raw.get("max")
     return StopConfig(
         type=raw.get("type", "manual"),
-        max=_coerce_int(raw.get("max"), "stop.max", None),
+        max=None if raw_max is None else _coerce_int(raw_max, "stop.max"),
         judge=raw.get("judge"),
     )
 
