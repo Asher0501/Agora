@@ -32,7 +32,7 @@
 | T25 | 修复 prompt 渲染机制 | app | Asher | M | — | done |
 | T26 | 收口契约文档漂移 | docs | Asher | S | — | done |
 | T27 | 补 CLI stop/resume 测试 | tests | Asher | S | — | done |
-| T28 | 配置结构形状守卫 | app | Asher | S | T25 | todo |
+| T28 | 配置结构形状守卫 | app | Asher | S | T25 | done |
 | T29 | llm_verdict/llm_pick 必填 judge/role | app | Asher | S | T25 | todo |
 
 **Total:** 29 tasks（T16–T24 为 review 反馈的 14 项修复；T25–T29 为复评 r2 反馈的 6 项修复）。

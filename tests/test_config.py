@@ -166,6 +166,32 @@ def test_summary_key_scoped_to_summary_role():
     assert exc.value.code == INVALID_PLACEHOLDER
 
 
+# ── T28 — 结构形状守卫（不抛裸 AttributeError/TypeError）───────────────
+
+def test_roles_scalar_rejected():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(roles="oops"))
+    assert exc.value.code == INVALID_CONFIG
+
+
+def test_roles_null_rejected():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(roles=None))
+    assert exc.value.code == INVALID_CONFIG
+
+
+def test_roles_mapping_rejected():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(roles={"id": "x"}))
+    assert exc.value.code == INVALID_CONFIG
+
+
+def test_select_scalar_rejected():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(select="round_robin"))
+    assert exc.value.code == INVALID_CONFIG
+
+
 # ── 扩展能力注入（T6 前置：known_capabilities 注入）────────────────────
 
 def test_custom_capability_accepted_when_registered():

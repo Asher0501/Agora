@@ -40,6 +40,8 @@ def _coerce_int(value: Any, field: str, default: int = 0) -> int:
 
 def parse_config(raw: dict[str, Any], known_capabilities: set[str] | None = None) -> ScenarioConfig:
     """YAML 映射 → ScenarioConfig（解析 + 校验，非法即 raise）。"""
+    if not isinstance(raw, dict):
+        raise DomainError(INVALID_CONFIG, f"配置必须为映射（收到 {type(raw).__name__}）")
     config = _build_scenario(raw)
     validate_config(config, known_capabilities)
     return config
@@ -47,9 +49,12 @@ def parse_config(raw: dict[str, Any], known_capabilities: set[str] | None = None
 
 def _build_scenario(raw: dict[str, Any]) -> ScenarioConfig:
     """纯解析（不校验），供 ``parse_config`` 与快照反序列化共用。"""
+    roles_raw = raw.get("roles", [])
+    if not isinstance(roles_raw, list):
+        raise DomainError(INVALID_CONFIG, "roles 必须为列表")
     return ScenarioConfig(
         scenario=str(raw.get("scenario", "")),
-        roles=[_parse_role(r) for r in raw.get("roles", [])],
+        roles=[_parse_role(r) for r in roles_raw],
         select=_parse_select(raw.get("select")),
         stop=_parse_stop(raw.get("stop")),
         summary=_parse_summary(raw.get("summary")),
@@ -101,6 +106,8 @@ def load_config(path: str | Path, known_capabilities: set[str] | None = None) ->
 
 
 def _parse_role(raw: dict[str, Any]) -> RoleConfig:
+    if not isinstance(raw, dict):
+        raise DomainError(INVALID_CONFIG, f"role 必须为映射（收到 {type(raw).__name__}）")
     return RoleConfig(
         id=str(raw.get("id", "")),
         prompt=str(raw.get("prompt", "")),
@@ -111,12 +118,18 @@ def _parse_role(raw: dict[str, Any]) -> RoleConfig:
 
 
 def _parse_select(raw: dict[str, Any] | None) -> SelectConfig:
-    raw = raw or {}
+    if raw is None:
+        raw = {}
+    elif not isinstance(raw, dict):
+        raise DomainError(INVALID_CONFIG, f"select 必须为映射（收到 {type(raw).__name__}）")
     return SelectConfig(type=raw.get("type", "round_robin"), role=raw.get("role"))
 
 
 def _parse_stop(raw: dict[str, Any] | None) -> StopConfig:
-    raw = raw or {}
+    if raw is None:
+        raw = {}
+    elif not isinstance(raw, dict):
+        raise DomainError(INVALID_CONFIG, f"stop 必须为映射（收到 {type(raw).__name__}）")
     raw_max = raw.get("max")
     return StopConfig(
         type=raw.get("type", "manual"),
@@ -128,6 +141,8 @@ def _parse_stop(raw: dict[str, Any] | None) -> StopConfig:
 def _parse_summary(raw: dict[str, Any] | None) -> SummaryConfig | None:
     if not raw:
         return None
+    if not isinstance(raw, dict):
+        raise DomainError(INVALID_CONFIG, f"summary 必须为映射（收到 {type(raw).__name__}）")
     return SummaryConfig(
         role=str(raw.get("role", "")),
         key=str(raw.get("key", "")),
