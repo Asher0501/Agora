@@ -8,6 +8,7 @@ import yaml
 
 from ..types import (
     RoleConfig,
+    RuntimeValues,
     ScenarioConfig,
     SelectConfig,
     StopConfig,
@@ -18,15 +19,58 @@ from .validator import validate_config
 
 def parse_config(raw: dict[str, Any], known_capabilities: set[str] | None = None) -> ScenarioConfig:
     """YAML 映射 → ScenarioConfig（解析 + 校验，非法即 raise）。"""
-    config = ScenarioConfig(
+    config = _build_scenario(raw)
+    validate_config(config, known_capabilities)
+    return config
+
+
+def _build_scenario(raw: dict[str, Any]) -> ScenarioConfig:
+    """纯解析（不校验），供 ``parse_config`` 与快照反序列化共用。"""
+    return ScenarioConfig(
         scenario=str(raw.get("scenario", "")),
         roles=[_parse_role(r) for r in raw.get("roles", [])],
         select=_parse_select(raw.get("select")),
         stop=_parse_stop(raw.get("stop")),
         summary=_parse_summary(raw.get("summary")),
     )
-    validate_config(config, known_capabilities)
-    return config
+
+
+# ── 快照序列化（T7 relay 读 / T8 session 写，ADR-0006 配置快照）───────
+
+
+def scenario_to_dict(config: ScenarioConfig) -> dict[str, Any]:
+    """ScenarioConfig → 快照 dict（key 与 dataclass 字段一致）。"""
+    return {
+        "scenario": config.scenario,
+        "roles": [
+            {"id": r.id, "prompt": r.prompt, "inject": r.inject, "window": r.window, "output": r.output}
+            for r in config.roles
+        ],
+        "select": {"type": config.select.type, "role": config.select.role},
+        "stop": {"type": config.stop.type, "max": config.stop.max, "judge": config.stop.judge},
+        "summary": (
+            {"role": config.summary.role, "key": config.summary.key, "window": config.summary.window}
+            if config.summary
+            else None
+        ),
+    }
+
+
+def scenario_from_dict(raw: dict[str, Any]) -> ScenarioConfig:
+    """快照 dict → ScenarioConfig（不校验——快照在 create 时已校验）。"""
+    return _build_scenario(raw)
+
+
+def runtime_to_dict(runtime: RuntimeValues) -> dict[str, Any]:
+    return {"topic": runtime.topic, "stance": runtime.stance, "extra": runtime.extra}
+
+
+def runtime_from_dict(raw: dict[str, Any]) -> RuntimeValues:
+    return RuntimeValues(
+        topic=str(raw.get("topic", "")),
+        stance=raw.get("stance"),
+        extra=dict(raw.get("extra") or {}),
+    )
 
 
 def load_config(path: str | Path, known_capabilities: set[str] | None = None) -> ScenarioConfig:

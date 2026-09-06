@@ -1,165 +1,156 @@
-"""T8 — turn orchestration loop run_session (AC-04/04b/09/14/15, ADR-0004)."""
+"""T7 — 接力循环 relay（选人→判停→产出→落桌，ADR-0007，AC-05/06/07/07b/08/09/10b/18）。"""
+from __future__ import annotations
 
 import pytest
 
-from brainstorm.business.errors import ROUND_QUOTA_EXHAUSTED, DomainError
-from brainstorm.business.protocols import SchedulingDecision
-from brainstorm.business.types import PersonaConfig, SessionConfig, StopConditionConfig
-from brainstorm.engine.loop import run_session
-from brainstorm.engine.registry import Registry
-from brainstorm.engine.session import create_session
-from brainstorm.extensions.schedulers.round_robin import RoundRobinScheduler
-from brainstorm.extensions.stop_conditions.fixed_rounds import FixedRoundsStop
-from brainstorm.extensions.stop_conditions.manual import ManualStop
-from brainstorm.weave_adapter.persona_agent import FakeLLM, PersonaRole
-from brainstorm.weave_adapter.repository import Repository
-
-
-def _config(max_speeches=4):
-    return SessionConfig(
-        topic="如何提升留存",
-        personas=[
-            PersonaConfig(persona_id="a", name="A", role_description="产品"),
-            PersonaConfig(persona_id="b", name="B", role_description="技术"),
-        ],
-        scheduler="round_robin",
-        stop_condition=StopConditionConfig(type="fixed_rounds", max_speeches=max_speeches),
-    )
-
-
-class RecordingConsumer:
-    def __init__(self):
-        self.events = []
-
-    def on_event(self, event):
-        self.events.append(event)
-
-
-class AlwaysAScheduler:
-    async def next_speaker(self, ctx):
-        return SchedulingDecision(speaker_id="a")
-
-
-class FailingLLM:
-    async def chat(self, messages, tools=None, max_tokens=4096, temperature=0.7):
-        raise RuntimeError("boom")
-
-    async def chat_stream(self, messages, tools=None, max_tokens=4096, temperature=0.7):
-        raise RuntimeError("boom")
+from agora.adapter.llm import FakeLLM
+from agora.adapter.repository import Repository
+from agora.config.schema import scenario_to_dict
+from agora.relay import ProgressEvent, relay
+from agora.types import RoleConfig, ScenarioConfig, SelectConfig, StopConfig
 
 
 @pytest.fixture
 def repo(tmp_path):
-    r = Repository(tmp_path / "m.db")
+    r = Repository(tmp_path / "memory.db")
     yield r
     r.close()
 
 
-def _register_roles(registry, config, llm=FakeLLM()):
-    for p in config.personas:
-        registry.register_role(
-            p.persona_id, PersonaRole(p.persona_id, p.name, p.role_description, llm, 20)
-        )
+class _Registry:
+    def __init__(self, llm, capabilities=None, observers=None):
+        self.llm = llm
+        self.capabilities = capabilities or {}
+        self.observers = observers or []
 
 
-def _register_defaults(registry):
-    registry.register_scheduler("round_robin", RoundRobinScheduler())
-    registry.register_stop_condition("fixed_rounds", FixedRoundsStop())
-    registry.register_stop_condition("manual", ManualStop())
+class _PromptLLM:
+    """按 prompt 内容返回确定性输出（区分判收敛 / 选下一位 / 发言）。"""
+
+    def __init__(self, verdict="CONTINUE", pick="NEXT:alice", speech="发言"):
+        self.verdict = verdict
+        self.pick = pick
+        self.speech = speech
+
+    async def complete(self, prompt: str) -> str:
+        if "判收敛" in prompt:
+            return self.verdict
+        if "选下一位" in prompt:
+            return self.pick
+        return self.speech
 
 
-@pytest.mark.asyncio
-async def test_run_fixed_rounds_happy_path(repo):
-    config = _config(max_speeches=4)
-    registry = Registry()
-    _register_roles(registry, config)
-    _register_defaults(registry)
-    session = await create_session(repo, config)
+class _Recorder:
+    def __init__(self):
+        self.events: list[ProgressEvent] = []
 
-    outcome = await run_session(repo, registry, session.session_id)
-
-    assert outcome.status == "stopped"
-    assert [s.seq for s in outcome.speeches] == [1, 2, 3, 4]
-    assert [s.speaker_id for s in outcome.speeches] == ["a", "b", "a", "b"]
-    assert outcome.converged is False
+    def on_event(self, event: ProgressEvent) -> None:
+        self.events.append(event)
 
 
-@pytest.mark.asyncio
-async def test_round_quota_second_append_rejected(repo):
-    config = _config(max_speeches=4)
-    registry = Registry()
-    _register_roles(registry, config)
-    registry.register_scheduler("round_robin", AlwaysAScheduler())
-    registry.register_stop_condition("fixed_rounds", FixedRoundsStop())
-    session = await create_session(repo, config)
-
-    with pytest.raises(DomainError) as exc:
-        await run_session(repo, registry, session.session_id)
-    assert exc.value.code == ROUND_QUOTA_EXHAUSTED
-
-
-@pytest.mark.asyncio
-async def test_generation_failure_skips_and_continues(repo):
-    config = _config(max_speeches=2)
-    registry = Registry()
-    registry.register_role("a", PersonaRole("a", "A", "产品", FailingLLM(), 20))
-    registry.register_role("b", PersonaRole("b", "B", "技术", FakeLLM(), 20))
-    _register_defaults(registry)
-    session = await create_session(repo, config)
-
-    outcome = await run_session(repo, registry, session.session_id, max_retries=1)
-
-    assert [s.speaker_id for s in outcome.speeches] == ["b", "b"]
-    events = await repo.read_events(session.session_id)
-    skips = [e for e in events if e.get("type") == "skip"]
-    assert len(skips) >= 2  # a 被跳过至少两次
-
-
-@pytest.mark.asyncio
-async def test_progress_events_in_order(repo):
-    config = _config(max_speeches=4)
-    registry = Registry()
-    _register_roles(registry, config)
-    _register_defaults(registry)
-    consumer = RecordingConsumer()
-    registry.register_consumer(consumer)
-    session = await create_session(repo, config)
-
-    await run_session(repo, registry, session.session_id)
-
-    assert [e.name for e in consumer.events] == [
-        "session.turn_started",
-        "session.speech_landed",
-        "session.turn_started",
-        "session.speech_landed",
-        "session.turn_started",
-        "session.speech_landed",
-        "session.turn_started",
-        "session.speech_landed",
-        "session.stopped",
+def _speaker(*ids: str):
+    return [
+        RoleConfig(id=i, prompt="你是{name}。主题：{topic}", inject=["topic"], output="free_text")
+        for i in ids
     ]
 
 
-class EchoRole:
-    """A minimal placeholder role that echoes its own id (AC-14)."""
+def _scenario(select_type="round_robin", stop_type="fixed_rounds", stop_max=3, roles=None, select_role=None, stop_judge=None):
+    roles = roles or _speaker("alice", "bob")
+    return ScenarioConfig(
+        scenario="brainstorm",
+        roles=roles,
+        select=SelectConfig(type=select_type, role=select_role),
+        stop=StopConfig(type=stop_type, max=stop_max, judge=stop_judge),
+    )
 
-    def __init__(self, persona_id: str):
-        self.persona_id = persona_id
 
-    async def speak(self, ctx):
-        return f"{self.persona_id}: 回显"
+async def _setup(repo, scenario, run_id="r1", topic="主题"):
+    await repo.save_config(
+        run_id,
+        {"scenario": scenario_to_dict(scenario), "runtime": {"topic": topic, "stance": None, "extra": {}}},
+    )
+    await repo.save_status(run_id, {"status": "running", "current_seq": 0, "last_agent_id": None})
+    return run_id
 
+
+# ── AC-05/06/09 — 按序落桌、无重复、固定条数不多产 ─────────────────────
 
 @pytest.mark.asyncio
-async def test_custom_role_runs_through_extension_point(repo):
-    config = _config(max_speeches=2)
-    registry = Registry()
-    registry.register_role("a", EchoRole("a"))
-    registry.register_role("b", EchoRole("b"))
-    _register_defaults(registry)
-    session = await create_session(repo, config)
+async def test_round_robin_orders_labels_and_no_duplicate(repo):
+    await _setup(repo, _scenario(stop_type="fixed_rounds", stop_max=3))
+    outcome = await relay(repo, _Registry(FakeLLM(reply="发言")), "r1")
+    assert [t.seq for t in outcome.transcript] == [1, 2, 3]
+    assert [t.agent_id for t in outcome.transcript] == ["alice", "bob", "alice"]
+    assert len(outcome.transcript) == 3  # AC-09：达条数即停，不多产
+    assert outcome.recap.termination == "fixed_rounds"
 
-    outcome = await run_session(repo, registry, session.session_id)
 
-    assert [s.speaker_id for s in outcome.speeches] == ["a", "b"]
-    assert [s.text for s in outcome.speeches] == ["a: 回显", "b: 回显"]
+# ── AC-08 — 裁判收敛写 verdict + recap ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_llm_verdict_converges(repo):
+    roles = _speaker("alice") + [RoleConfig(id="judge", prompt="判收敛：{history}", inject=["history"], output="verdict")]
+    await _setup(repo, _scenario(stop_type="llm_verdict", stop_max=10, stop_judge="judge", roles=roles))
+    outcome = await relay(repo, _Registry(_PromptLLM(verdict="CONVERGE:结论成立")), "r1")
+    assert outcome.verdict is not None and outcome.verdict.converged is True
+    assert outcome.verdict.conclusion == "结论成立"
+    assert outcome.recap.termination == "converged"
+
+
+# ── AC-10b — 上限未收敛标注「未收敛」───────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_llm_verdict_caps_unconverged(repo):
+    roles = _speaker("alice") + [RoleConfig(id="judge", prompt="判收敛：{history}", inject=["history"], output="verdict")]
+    await _setup(repo, _scenario(stop_type="llm_verdict", stop_max=2, stop_judge="judge", roles=roles))
+    outcome = await relay(repo, _Registry(_PromptLLM(verdict="CONTINUE")), "r1")
+    assert outcome.recap.termination == "cap_unconverged"
+    assert outcome.verdict is None  # 未收敛不写 verdict
+    assert len(outcome.transcript) == 2
+
+
+# ── AC-07 — 选人路由（llm_pick）───────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_llm_pick_routes_to_selected_agent(repo):
+    roles = [RoleConfig(id="mod", prompt="选下一位：{history}", inject=["history"], output="pick_next")] + _speaker("alice", "bob")
+    await _setup(repo, _scenario(select_type="llm_pick", select_role="mod", stop_type="fixed_rounds", stop_max=1, roles=roles))
+    outcome = await relay(repo, _Registry(_PromptLLM(pick="NEXT:bob")), "r1")
+    assert outcome.transcript[0].agent_id == "bob"
+
+
+# ── AC-07b — 无效选择重试后回退名单顺序 + 观测事件 ─────────────────────
+
+@pytest.mark.asyncio
+async def test_llm_pick_invalid_falls_back_with_events(repo):
+    roles = [RoleConfig(id="mod", prompt="选下一位：{history}", inject=["history"], output="pick_next")] + _speaker("alice", "bob")
+    await _setup(repo, _scenario(select_type="llm_pick", select_role="mod", stop_type="fixed_rounds", stop_max=1, roles=roles))
+    outcome = await relay(repo, _Registry(_PromptLLM(pick="NEXT:ghost")), "r1")
+    assert outcome.transcript[0].agent_id == "alice"  # 回退名单顺序 → 第一个发言人
+    events = await repo.read_events("r1")
+    invalid = [e for e in events if e.get("type") == "invalid_choice"]
+    # 每次无效选择（首次 + 重试）都落盘为观测事件；ADR-0007 每轮选人→判停，
+    # 末轮判停前仍会选人一次，故事件数 ≥ 2（本场景共 2 轮 × 2 次）。
+    assert len(invalid) >= 2
+    assert {e["reason"] for e in invalid} == {"选定的下一位不在名单内", "重试后仍无效"}
+
+
+# ── AC-18 — 进度事件只携带本 run 内容 ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_progress_events_only_carry_this_run(repo):
+    await _setup(repo, _scenario(stop_type="fixed_rounds", stop_max=2), run_id="r1")
+    recorder = _Recorder()
+    await relay(repo, _Registry(FakeLLM(reply="发言"), observers=[recorder]), "r1")
+
+    names = [e.name for e in recorder.events]
+    assert names == [
+        "run.turn_started", "run.turn_landed",
+        "run.turn_started", "run.turn_landed",
+        "run.stopped",
+    ]
+    # 事件只携带本 run id，payload 不含他会话内容
+    for e in recorder.events:
+        assert e.run_id == "r1"
+        assert "other_run" not in e.payload
