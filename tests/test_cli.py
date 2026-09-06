@@ -106,5 +106,38 @@ async def _seed_run_with_event(db: str) -> str:
     return run.run_id
 
 
+async def _seed_running_run(db: str, stop_type: str = "manual", stop_max: int | None = None) -> str:
+    repo = Repository(db)
+    scenario = ScenarioConfig(
+        scenario="brainstorm",
+        roles=[
+            RoleConfig(id="alice", prompt="你是{name}。主题：{topic}", inject=["topic"], output="free_text"),
+            RoleConfig(id="bob", prompt="你是{name}。主题：{topic}", inject=["topic"], output="free_text"),
+        ],
+        select=SelectConfig(type="round_robin"),
+        stop=StopConfig(type=stop_type, max=stop_max),
+    )
+    run = await create_run(repo, scenario, RuntimeValues(topic="主题"))
+    repo.close()
+    return run.run_id
+
+
+def test_stop_existing_run_prints_manual(capsys, db):
+    run_id = asyncio.run(_seed_running_run(db))
+    rc = main(["stop", run_id, "--db", db], llm_factory=FakeLLM)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "termination=manual" in out
+
+
+def test_resume_existing_run_continues(capsys, db):
+    run_id = asyncio.run(_seed_running_run(db, stop_type="fixed_rounds", stop_max=2))
+    rc = main(["resume", run_id, "--db", db], llm_factory=FakeLLM)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "termination=fixed_rounds" in out
+    assert "turns=2" in out
+
+
 def test_usage_error_exit_2(capsys, db):
     assert main(["bogus", "--db", db], llm_factory=FakeLLM) == 2
