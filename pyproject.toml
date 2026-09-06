@@ -3,22 +3,21 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "brainstorm"
+name = "agora"
 version = "0.1.0"
-description = "Multi-persona brainstorm engine: shared-table relay speech with pluggable roles/schedulers/stop-conditions/consumers"
-readme = "brainstorm/README.md"
+description = "Semantics-free multi-agent relay engine: shared-table relay speech with declarative scenario config"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
 ]
 
 [project.scripts]
-brainstorm = "brainstorm.cli:main"
 agora = "agora.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agora*", "brainstorm*"]
+include = ["agora*"]
 
 [tool.ruff]
 line-length = 100
