@@ -84,6 +84,9 @@ async def relay(repository: Any, registry: Any, run_id: str) -> RunOutcome:
 
     while True:
         status = await repository.load_status(run_id) or {}
+        if status.get("status") == "stopped":
+            termination = "manual"
+            break
         stop_requested = bool(status.get("stop_requested"))
 
         agent_id, sel_converged, sel_conclusion = await _select_agent(
@@ -119,6 +122,11 @@ async def relay(repository: Any, registry: Any, run_id: str) -> RunOutcome:
         role = _find_role(scenario.roles, agent_id)
         _emit("run.turn_started", {"seq": len(transcript) + 1, "agent_id": agent_id})
         text = await _produce(role, runtime, transcript, registry.llm, scenario.summary, repository, run_id)
+        # AC-11：产出在途期间收到停止 → 取消该发言（不落桌），终止接力。
+        status = await repository.load_status(run_id) or {}
+        if status.get("stop_requested") or status.get("status") == "stopped":
+            termination = "manual"
+            break
         turn = await repository.append_turn(run_id, agent_id, text)
         transcript.append(turn)
         _emit("run.turn_landed", {"seq": turn.seq, "agent_id": agent_id})

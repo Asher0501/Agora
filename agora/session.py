@@ -81,16 +81,19 @@ async def stop_run(repository: Any, registry: Any, run_id: str) -> RunOutcome:
     """手动停止（AC-11）：写停止标志 + 「手动停止」recap；在途发言不落桌。"""
     if await repository.load_config(run_id) is None:
         raise DomainError(RUN_NOT_FOUND, f"会话 {run_id} 不存在")
-    status = await repository.load_status(run_id) or {}
-    status["stop_requested"] = True
-    await repository.save_status(run_id, status)
-
     transcript = await repository.read_transcript(run_id)
-    recap_text = f"本场接力共 {len(transcript)} 条发言，终止方式：manual（手动停止）"
+    # 一次性写状态：置 stopped 的同时保留 stop_requested——运行中的 relay 轮询它，
+    # 若被覆盖则接力永不终止（AC-11）。
     await repository.save_status(
         run_id,
-        {"status": "stopped", "current_seq": len(transcript), "last_agent_id": transcript[-1].agent_id if transcript else None},
+        {
+            "status": "stopped",
+            "stop_requested": True,
+            "current_seq": len(transcript),
+            "last_agent_id": transcript[-1].agent_id if transcript else None,
+        },
     )
+    recap_text = f"本场接力共 {len(transcript)} 条发言，终止方式：manual（手动停止）"
     await repository.save_recap(run_id, {"termination": "manual", "recap": recap_text})
     _emit(registry, run_id, "run.stopped", {"status": "stopped"})
     return RunOutcome(
