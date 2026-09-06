@@ -12,11 +12,22 @@ from typing import Any
 from .atoms import MENU
 
 
-def register_capability(registry: dict[str, Any], name: str, capability: Any) -> None:
-    """登记一个自定义能力到 registry（普通 ``dict``，由 wiring 创建并注入校验/接力）。"""
-    registry[name] = capability
+def _capabilities_dict(registry: Any) -> dict[str, Any]:
+    """取 registry 的 ``capabilities`` 映射（兼容 ``Registry`` 容器或裸 ``dict``）。"""
+    caps = getattr(registry, "capabilities", None)
+    if caps is not None:
+        return caps
+    if isinstance(registry, dict):
+        return registry
+    raise TypeError(f"registry 必须是 Registry 容器或 dict（收到 {type(registry).__name__}）")
 
 
-def known_capabilities(registry: dict[str, Any] | None = None) -> set[str]:
+def register_capability(registry: Any, name: str, capability: Any) -> None:
+    """登记一个自定义能力到 registry（``Registry`` 容器或普通 ``dict``）。"""
+    _capabilities_dict(registry)[name] = capability
+
+
+def known_capabilities(registry: Any | None = None) -> set[str]:
     """闭集菜单 ∪ 已注册扩展能力——喂给 T5 ``validate_config``。"""
-    return set(MENU) | (set(registry) if registry else set())
+    caps = _capabilities_dict(registry) if registry is not None else {}
+    return set(MENU) | set(caps)
