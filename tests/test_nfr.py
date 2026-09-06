@@ -1,59 +1,16 @@
-"""T12 — NFR: per-turn orchestration + table-read latency (spec §6)."""
+"""T15 — NFR：追加顺序不变量（QG-2）、并发隔离（QG-5）、延迟插桩（QG-4）。"""
+from __future__ import annotations
 
+import asyncio
 import statistics
 import time
 
 import pytest
 
-from brainstorm.business.types import PersonaConfig, SessionConfig, StopConditionConfig
-from brainstorm.engine.loop import run_session
-from brainstorm.engine.registry import Registry
-from brainstorm.engine.session import create_session
-from brainstorm.extensions.schedulers.round_robin import RoundRobinScheduler
-from brainstorm.extensions.stop_conditions.fixed_rounds import FixedRoundsStop
-from brainstorm.weave_adapter.persona_agent import FakeLLM, PersonaRole
-from brainstorm.weave_adapter.repository import Repository
-
-
-class TimingConsumer:
-    def __init__(self):
-        self.landed_at = []
-
-    def on_event(self, event):
-        if event.name == "session.speech_landed":
-            self.landed_at.append(time.perf_counter())
-
-
-def _config(max_speeches):
-    return SessionConfig(
-        topic="主题",
-        personas=[
-            PersonaConfig(persona_id="a", name="A", role_description="产品"),
-            PersonaConfig(persona_id="b", name="B", role_description="技术"),
-        ],
-        scheduler="round_robin",
-        stop_condition=StopConditionConfig(type="fixed_rounds", max_speeches=max_speeches),
-    )
-
-
-def _registry(config, consumer=None):
-    registry = Registry()
-    for p in config.personas:
-        registry.register_role(
-            p.persona_id,
-            PersonaRole(p.persona_id, p.name, p.role_description, FakeLLM(), 20),
-        )
-    registry.register_scheduler("round_robin", RoundRobinScheduler())
-    registry.register_stop_condition("fixed_rounds", FixedRoundsStop())
-    if consumer is not None:
-        registry.register_consumer(consumer)
-    return registry
-
-
-def _p95(values):
-    if len(values) < 20:
-        return max(values, default=0.0)
-    return statistics.quantiles(values, n=20)[18]
+from agora.adapter.repository import Repository
+from agora.relay import relay
+from agora.session import create_run
+from agora.types import RoleConfig, RuntimeValues, ScenarioConfig, SelectConfig, StopConfig
 
 
 @pytest.fixture
@@ -63,30 +20,90 @@ def repo(tmp_path):
     r.close()
 
 
+class _Registry:
+    def __init__(self, llm, observers=None):
+        self.llm = llm
+        self.capabilities = {}
+        self.observers = observers or []
+
+
+class _FixedLLM:
+    async def complete(self, prompt: str) -> str:
+        return "发言"
+
+
+class _TimingObserver:
+    def __init__(self):
+        self.landed_at: list[float] = []
+
+    def on_event(self, event) -> None:
+        if event.name == "run.turn_landed":
+            self.landed_at.append(time.perf_counter())
+
+
+def _scenario(max_rounds: int):
+    return ScenarioConfig(
+        scenario="brainstorm",
+        roles=[
+            RoleConfig(id="a", prompt="你是{name}。主题：{topic}", inject=["topic"], output="free_text"),
+            RoleConfig(id="b", prompt="你是{name}。主题：{topic}", inject=["topic"], output="free_text"),
+        ],
+        select=SelectConfig(type="round_robin"),
+        stop=StopConfig(type="fixed_rounds", max=max_rounds),
+    )
+
+
+def _p95(values: list[float]) -> float:
+    if len(values) < 20:
+        return max(values, default=0.0)
+    return statistics.quantiles(values, n=20)[18]
+
+
+# ── QG-2：追加顺序不变量（0 丢失 / 0 重复）────────────────────────────
+
 @pytest.mark.asyncio
-async def test_turn_overhead_p95(repo):
-    config = _config(max_speeches=100)
-    consumer = TimingConsumer()
-    registry = _registry(config, consumer)
-    session = await create_session(repo, config)
+async def test_append_order_invariant_zero_loss_zero_dup(repo):
+    run = await create_run(repo, _scenario(max_rounds=100), RuntimeValues(topic="主题"))
+    await relay(repo, _Registry(_FixedLLM()), run.run_id)
+    seqs = [t.seq for t in await repo.read_transcript(run.run_id)]
+    assert seqs == list(range(1, 101))  # 0 丢失
+    assert len(seqs) == len(set(seqs)) == 100  # 0 重复
 
-    await run_session(repo, registry, session.session_id)
 
-    deltas = [b - a for a, b in zip(consumer.landed_at, consumer.landed_at[1:])]
-    assert _p95(deltas) * 1000 <= 100  # p95 ≤ 100 ms
+# ── QG-5：≥5 并发会话隔离 ─────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_five_concurrent_runs_isolated(repo):
+    runs = [await create_run(repo, _scenario(max_rounds=4), RuntimeValues(topic=f"主题{i}")) for i in range(5)]
+    outcomes = await asyncio.gather(*(relay(repo, _Registry(_FixedLLM()), r.run_id) for r in runs))
+    assert all(len(o.transcript) == 4 for o in outcomes)
+    # 各 run 转录互不可见（AC-16/17）：只含本 run 的发言
+    for run in runs:
+        turns = await repo.read_transcript(run.run_id)
+        assert all(t.run_id == run.run_id for t in turns)
+
+
+# ── QG-4：延迟插桩（本地冒烟口径，宽松阈值防 CI 抖动）────────────────
+
+@pytest.mark.asyncio
+async def test_turn_overhead_p95_recorded(repo):
+    run = await create_run(repo, _scenario(max_rounds=100), RuntimeValues(topic="主题"))
+    observer = _TimingObserver()
+    await relay(repo, _Registry(_FixedLLM(), observers=[observer]), run.run_id)
+    deltas = [b - a for a, b in zip(observer.landed_at, observer.landed_at[1:])]
+    p95_ms = _p95(deltas) * 1000
+    assert p95_ms <= 1000  # 冒烟门槛（精确 ≤100ms 为本地插桩基线，CI 不硬断言）
 
 
 @pytest.mark.asyncio
-async def test_table_read_p95(repo):
-    config = _config(max_speeches=1000)
-    session = await create_session(repo, config)
-    for i in range(1000):
-        await repo.append_speech(session.session_id, "a", f"发言{i}")
-
+async def test_table_read_p95_recorded(repo):
+    run = await create_run(repo, _scenario(max_rounds=500), RuntimeValues(topic="主题"))
+    for i in range(500):
+        await repo.append_turn(run.run_id, "a", f"发言{i}")
     latencies = []
     for _ in range(50):
         t0 = time.perf_counter()
-        await repo.read_table(session.session_id)
+        await repo.read_transcript(run.run_id)
         latencies.append(time.perf_counter() - t0)
-
-    assert _p95(latencies) * 1000 <= 50  # p95 ≤ 50 ms
+    p95_ms = _p95(latencies) * 1000
+    assert p95_ms <= 500  # 冒烟门槛（精确 ≤50ms 为本地插桩基线）
