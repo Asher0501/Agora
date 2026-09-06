@@ -1,0 +1,25 @@
+# brainstorm — 第一个纯配置场景（AC-01 的种子，ADR-0002/0003）。
+# 能力集合：多角色 round_robin 接力 + 共享转录 + fixed_rounds 判停（条数上限兜底）。
+# 运行时值（topic/stance）不写进配置，逐场注入（spec §1）。
+scenario: brainstorm
+roles:
+  - id: skeptic
+    prompt: "你是一位质疑者，负责对方案提出尖锐质疑。\n主题：{topic}\n已有讨论：\n{history}\n请围绕主题提出你的质疑。"
+    inject: [topic, history]
+    window: 20
+    output: free_text
+  - id: optimizer
+    prompt: "你是一位优化者，负责对方案提出改进建议。\n主题：{topic}\n已有讨论：\n{history}\n请围绕主题提出改进或补充。"
+    inject: [topic, history]
+    window: 20
+    output: free_text
+  - id: devil
+    prompt: "你是一位风险分析师，负责找出方案的风险与漏洞。\n主题：{topic}\n已有讨论：\n{history}\n请找出风险与漏洞。"
+    inject: [topic, history]
+    window: 20
+    output: free_text
+select:
+  type: round_robin
+stop:
+  type: fixed_rounds
+  max: 12
