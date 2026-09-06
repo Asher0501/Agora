@@ -155,8 +155,10 @@ def test_summary_config_minimal_shape():
 
 def test_agora_domain_has_no_weave_import():
     agora_dir = pathlib.Path(__file__).resolve().parent.parent / "agora"
-    for name in ("types.py", "errors.py", "namespaces.py"):
-        path = agora_dir / name
-        assert path.exists(), f"{name} missing"
+    # 领域/内核层零 weave 依赖（SAD §2 / ADR-0002）：扫全部 agora 模块，仅 adapter/ 豁免。
+    for path in sorted(agora_dir.rglob("*.py")):
+        rel = path.relative_to(agora_dir)
+        if rel.parts and rel.parts[0] == "adapter":
+            continue  # adapter/ 是唯一 weave_agent_sdk 集成点
         text = path.read_text(encoding="utf-8")
-        assert "import weave" not in text and "from weave" not in text, name
+        assert "import weave" not in text and "from weave" not in text, str(rel)

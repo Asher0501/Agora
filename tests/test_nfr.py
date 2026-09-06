@@ -41,6 +41,22 @@ class _TimingObserver:
             self.landed_at.append(time.perf_counter())
 
 
+class _TurnDurationObserver:
+    """记录每个 turn 的产出耗时（started → landed），供 QG-5 并发比率测量。"""
+
+    def __init__(self):
+        self._started: dict[str, float] = {}
+        self.durations: list[float] = []
+
+    def on_event(self, event) -> None:
+        if event.name == "run.turn_started":
+            self._started[event.run_id] = time.perf_counter()
+        elif event.name == "run.turn_landed":
+            start = self._started.pop(event.run_id, None)
+            if start is not None:
+                self.durations.append(time.perf_counter() - start)
+
+
 def _scenario(max_rounds: int):
     return ScenarioConfig(
         scenario="brainstorm",
@@ -83,6 +99,24 @@ async def test_five_concurrent_runs_isolated(repo):
         assert all(t.run_id == run.run_id for t in turns)
 
 
+@pytest.mark.asyncio
+async def test_concurrent_p95_within_2x_single_baseline(repo):
+    # 单会话基线：30 条发言的每轮编排耗时 p95
+    single_obs = _TurnDurationObserver()
+    run = await create_run(repo, _scenario(30), RuntimeValues(topic="基线"))
+    await relay(repo, _Registry(_FixedLLM(), observers=[single_obs]), run.run_id)
+    single_p95 = _p95(single_obs.durations)
+
+    # 5 并发各 30 条：聚合每轮编排耗时 p95
+    conc_obs = _TurnDurationObserver()
+    runs = [await create_run(repo, _scenario(30), RuntimeValues(topic=f"主题{i}")) for i in range(5)]
+    await asyncio.gather(*(relay(repo, _Registry(_FixedLLM(), observers=[conc_obs]), r.run_id) for r in runs))
+    conc_p95 = _p95(conc_obs.durations)
+
+    # QG-5：并发下 p95 不劣化超过 2× 单会话基线（+ 小 epsilon 防抖）
+    assert conc_p95 <= 2 * single_p95 + 0.005
+
+
 # ── QG-4：延迟插桩（本地冒烟口径，宽松阈值防 CI 抖动）────────────────
 
 @pytest.mark.asyncio
@@ -92,7 +126,7 @@ async def test_turn_overhead_p95_recorded(repo):
     await relay(repo, _Registry(_FixedLLM(), observers=[observer]), run.run_id)
     deltas = [b - a for a, b in zip(observer.landed_at, observer.landed_at[1:])]
     p95_ms = _p95(deltas) * 1000
-    assert p95_ms <= 1000  # 冒烟门槛（精确 ≤100ms 为本地插桩基线，CI 不硬断言）
+    assert p95_ms <= 100  # spec §6：每轮编排开销（不含生成）p95 ≤100 ms
 
 
 @pytest.mark.asyncio
@@ -106,4 +140,4 @@ async def test_table_read_p95_recorded(repo):
         await repo.read_transcript(run.run_id)
         latencies.append(time.perf_counter() - t0)
     p95_ms = _p95(latencies) * 1000
-    assert p95_ms <= 500  # 冒烟门槛（精确 ≤50ms 为本地插桩基线）
+    assert p95_ms <= 50  # spec §6：读完整共享转录 p95 ≤50 ms

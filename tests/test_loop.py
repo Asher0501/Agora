@@ -136,6 +136,19 @@ async def test_llm_pick_invalid_falls_back_with_events(repo):
     assert {e["reason"] for e in invalid} == {"选定的下一位不在名单内", "重试后仍无效"}
 
 
+# ── OQ4 — 裁判解析失败：确定性回退 + 观测事件 + 达上限封顶 ─────────────
+
+@pytest.mark.asyncio
+async def test_verdict_parse_failure_emits_event_and_caps(repo):
+    roles = _speaker("alice") + [RoleConfig(id="judge", prompt="判收敛：{history}", inject=["history"], output="verdict")]
+    await _setup(repo, _scenario(stop_type="llm_verdict", stop_max=2, stop_judge="judge", roles=roles))
+    outcome = await relay(repo, _Registry(_PromptLLM(verdict="乱码")), "r1")
+    assert outcome.recap.termination == "cap_unconverged"  # 解析失败达上限仍封顶（AC-10b）
+    assert len(outcome.transcript) == 2  # 不空转、不多产
+    failures = [e for e in await repo.read_events("r1") if e.get("type") == "verdict_parse_failure"]
+    assert len(failures) >= 1  # 每次解析失败落观测事件（不污染转录）
+
+
 # ── AC-18 — 进度事件只携带本 run 内容 ─────────────────────────────────
 
 @pytest.mark.asyncio
