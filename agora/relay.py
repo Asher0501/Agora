@@ -20,6 +20,7 @@ from .atoms import (
     ManualTerminator,
     OutputSpec,
     RoundRobinSelector,
+    WindowSummarizer,
     parse,
     render,
 )
@@ -117,7 +118,7 @@ async def relay(repository: Any, registry: Any, run_id: str) -> RunOutcome:
 
         role = _find_role(scenario.roles, agent_id)
         _emit("run.turn_started", {"seq": len(transcript) + 1, "agent_id": agent_id})
-        text = await _produce(role, runtime, transcript, registry.llm)
+        text = await _produce(role, runtime, transcript, registry.llm, scenario.summary, repository, run_id)
         turn = await repository.append_turn(run_id, agent_id, text)
         transcript.append(turn)
         _emit("run.turn_landed", {"seq": turn.seq, "agent_id": agent_id})
@@ -180,9 +181,25 @@ def _build_terminator(scenario: ScenarioConfig, registry: Any) -> Any:
     return cap
 
 
-async def _produce(role: RoleConfig, runtime: RuntimeValues, transcript: list[Turn], llm: Any) -> str:
-    """产出：render（注入字段 + 截断 history）→ llm.complete → parse。"""
+async def _produce(
+    role: RoleConfig,
+    runtime: RuntimeValues,
+    transcript: list[Turn],
+    llm: Any,
+    summary: Any = None,
+    repository: Any = None,
+    run_id: str | None = None,
+) -> str:
+    """产出：render（注入字段 + 截断 history）→ llm.complete → parse。
+
+    若该角色配置了 summary（AC-12）：先压缩共享转录 → 写私有 state → 注入 prompt。
+    """
     ctx = _build_ctx(role, runtime, transcript)
+    if summary is not None and summary.role == role.id:
+        summary_text = await WindowSummarizer().summarize(transcript, {"window": summary.window})
+        if repository is not None and run_id is not None:
+            await repository.write_private(run_id, role.id, summary.key, summary_text)
+        ctx[summary.key] = summary_text
     prompt = render(role.prompt, ctx, role.window)
     text = await llm.complete(prompt)
     return parse(text, OutputSpec(kind="free_text")).text or text

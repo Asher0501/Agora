@@ -235,3 +235,15 @@ class ManualTerminator:
 MENU_SELECTORS = frozenset({"round_robin", "llm_pick"})
 MENU_TERMINATORS = frozenset({"fixed_rounds", "llm_verdict", "manual"})
 MENU = frozenset(MENU_SELECTORS | MENU_TERMINATORS)
+
+
+class WindowSummarizer:
+    """默认摘要原子：把共享转录截断到最近 ``window`` 条并拼接（确定性，无 LLM）。
+
+    可换 LLM 压缩（扩展区注册自定义 Summarizer 覆盖）。
+    """
+
+    async def summarize(self, transcript: list[Turn], ctx: dict[str, Any]) -> str:
+        window = int(ctx.get("window") or 0)
+        recent = transcript[-window:] if window > 0 else transcript
+        return "\n".join(f"{t.agent_id}: {t.text}" for t in recent)

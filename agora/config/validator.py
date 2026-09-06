@@ -55,6 +55,15 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
         if not role.prompt or not role.prompt.strip():
             raise DomainError(ROLE_DESCRIPTION_REQUIRED, f"角色 {role.id} 缺少产出所需描述")
 
+    # SummaryConfig 最小形状（api-sync-report §C-2，待 data-model ratify）
+    identity = set(_IDENTITY)
+    if config.summary is not None:
+        if not config.summary.role or not config.summary.key:
+            raise DomainError(INVALID_CONFIG, "summary 的 role 与 key 必填")
+        if config.summary.role not in role_by_id:
+            raise DomainError(INVALID_CONFIG, f"summary 的角色 {config.summary.role} 不在名单内")
+        identity.add(config.summary.key)  # summary 注入字段始终可用
+
     # AC-13：output 与 select/stop 匹配
     if config.stop.type == "llm_verdict" and config.stop.judge:
         judge = role_by_id.get(config.stop.judge)
@@ -77,7 +86,7 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
 
     # 模板占位符与 inject 字段名匹配
     for role in config.roles:
-        _validate_placeholders(role)
+        _validate_placeholders(role, identity)
 
     # max / window 数值合法
     if config.stop.max is not None and config.stop.max <= 0:
@@ -87,13 +96,13 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
             raise DomainError(INVALID_CONFIG, f"角色 {role.id} 的 window 不能为负")
 
 
-def _validate_placeholders(role: RoleConfig) -> None:
+def _validate_placeholders(role: RoleConfig, identity: set[str]) -> None:
     inject = set(role.inject)
     for field in inject:
-        if field not in _KNOWN_FIELDS:
+        if field not in _KNOWN_FIELDS and field not in identity:
             raise DomainError(INVALID_PLACEHOLDER, f"角色 {role.id} 的 inject 含未知字段 {field}")
     for placeholder in _PLACEHOLDER_RE.findall(role.prompt):
-        if placeholder not in _IDENTITY and placeholder not in inject:
+        if placeholder not in identity and placeholder not in inject:
             raise DomainError(
                 INVALID_PLACEHOLDER,
                 f"角色 {role.id} 的模板占位符 {{{placeholder}}} 未在 inject 中声明",
