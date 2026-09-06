@@ -201,6 +201,8 @@ class LlmVerdictTerminator:
         self._judge = judge
 
     async def should_stop(self, ctx: dict[str, Any]) -> StopDecision:
+        max_ = ctx.get("max")
+        at_cap = max_ is not None and ctx.get("current_seq", 0) >= max_
         transcript = ctx.get("transcript", [])
         prompt = render(
             self._judge.prompt,
@@ -209,15 +211,17 @@ class LlmVerdictTerminator:
         )
         parsed = parse(await self._llm.complete(prompt), OutputSpec(kind="verdict"))
         if parsed.parse_failure:
-            # OQ4：视为未收敛 + 观测事件（由 relay 记录）
+            # OQ4：解析失败视为未收敛 + 观测事件（由 relay 记录）；
+            # 但达条数上限是**无条件**兜底（AC-10b），即便裁判垃圾也强制结束，不空转。
+            if at_cap:
+                return StopDecision(stop=True, termination="cap_unconverged", parse_failure=True)
             return StopDecision(stop=False, parse_failure=True)
         if parsed.converged:
             return StopDecision(
                 stop=True, termination="converged", converged=True, conclusion=parsed.conclusion
             )
         # CONTINUE → 达 max 兜底则 cap_unconverged（AC-10b）
-        max_ = ctx.get("max")
-        if max_ is not None and ctx.get("current_seq", 0) >= max_:
+        if at_cap:
             return StopDecision(stop=True, termination="cap_unconverged")
         return StopDecision(stop=False)
 

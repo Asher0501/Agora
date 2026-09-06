@@ -121,6 +121,18 @@ def test_nonpositive_max_rejected():
     assert exc.value.code == INVALID_CONFIG
 
 
+def test_fixed_rounds_requires_max():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(stop={"type": "fixed_rounds"}))
+    assert exc.value.code == INVALID_CONFIG
+
+
+def test_llm_verdict_requires_max():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(stop={"type": "llm_verdict", "judge": "judge"}))
+    assert exc.value.code == INVALID_CONFIG
+
+
 # ── 扩展能力注入（T6 前置：known_capabilities 注入）────────────────────
 
 def test_custom_capability_accepted_when_registered():

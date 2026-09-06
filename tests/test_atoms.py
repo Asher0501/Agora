@@ -155,6 +155,16 @@ async def test_manual_stops_on_flag():
     assert (await term.should_stop({"stop_requested": True})).stop is True
 
 
+@pytest.mark.asyncio
+async def test_llm_verdict_parse_failure_at_cap_still_stops():
+    # AC-10b：即便裁判产出解析失败，达条数上限也强制结束（不空转）
+    judge = RoleConfig(id="judge", prompt="{history}", output="verdict")
+    term = LlmVerdictTerminator(_FixedLLM("乱码"), judge)
+    d = await term.should_stop({"current_seq": 5, "max": 5, "transcript": []})
+    assert d.stop is True and d.termination == "cap_unconverged"
+    assert d.parse_failure is True  # 仍标记解析失败（relay 落观测事件）
+
+
 # ── 闭集菜单 — public-api §4 表 ────────────────────────────────────────
 
 def test_menu_lists_five_atoms():

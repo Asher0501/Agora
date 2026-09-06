@@ -43,6 +43,12 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
     if config.stop.type not in known:
         raise DomainError(UNKNOWN_CAPABILITY, f"判停方式 {config.stop.type} 不受支持")
 
+    # AC-09/10b：fixed_rounds / llm_verdict 必须指定正整数的 stop.max（防无上限空转）
+    if config.stop.type in {"fixed_rounds", "llm_verdict"} and config.stop.max is None:
+        raise DomainError(
+            INVALID_CONFIG, f"判停方式 {config.stop.type} 必须指定正整数的 stop.max"
+        )
+
     role_by_id = {r.id: r for r in config.roles}
 
     # 保留字：agent_id 不得为 `events`
