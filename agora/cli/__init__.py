@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume = sub.add_parser("resume", parents=[common], help="恢复中断的会话")
     resume.add_argument("run_id")
 
-    observe = sub.add_parser("observe", parents=[common], help="打印本会话事件")
+    observe = sub.add_parser("observe", parents=[common], help="打印本会话已落盘的观测事件")
     observe.add_argument("run_id")
     return parser
 
@@ -133,6 +133,12 @@ async def _cmd_resume(repository: Any, registry: Any, run_id: str) -> None:
 
 
 async def _cmd_observe(repository: Any, run_id: str) -> None:
+    """打印本会话已落盘的系统观测事件（invalid_choice / verdict_parse_failure）。
+
+    进度事件（回合开始/发言落桌/收敛/停止）是进程内发布-订阅、不持久化
+    （data-model §System records / public-api §8），故跨进程的 `observe` 打印的是
+    持久化观测事件流，不含他会话内容（AC-18）。
+    """
     await resume_run(repository, run_id)  # 不存在 → run_not_found（退出 1）
     for event in await repository.read_events(run_id):
         print(f"{event.get('type')} {event.get('agent_id', '')} {event.get('reason', '')}")

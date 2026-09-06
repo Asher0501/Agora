@@ -1,11 +1,16 @@
 """T10 — CLI run/stop/resume/observe + 退出码（contracts/cli.md）。"""
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 import yaml
 
 from agora.adapter.llm import FakeLLM
+from agora.adapter.repository import Repository
 from agora.cli import main
+from agora.session import create_run
+from agora.types import RoleConfig, RuntimeValues, ScenarioConfig, SelectConfig, StopConfig
 
 
 @pytest.fixture
@@ -72,6 +77,33 @@ def test_observe_nonexistent_exit_1(capsys, db):
     rc = main(["observe", "nope", "--db", db], llm_factory=FakeLLM)
     assert rc == 1
     assert "agora.run_not_found" in capsys.readouterr().err
+
+
+def test_observe_prints_persisted_events(capsys, db):
+    run_id = asyncio.run(_seed_run_with_event(db))
+    rc = main(["observe", run_id, "--db", db], llm_factory=FakeLLM)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "invalid_choice" in out
+    assert "ghost" in out
+
+
+async def _seed_run_with_event(db: str) -> str:
+    repo = Repository(db)
+    scenario = ScenarioConfig(
+        scenario="brainstorm",
+        roles=[
+            RoleConfig(id="a", prompt="你是{name}。主题：{topic}", inject=["topic"], output="free_text"),
+        ],
+        select=SelectConfig(type="round_robin"),
+        stop=StopConfig(type="manual"),
+    )
+    run = await create_run(repo, scenario, RuntimeValues(topic="主题"))
+    await repo.append_event(
+        run.run_id, {"type": "invalid_choice", "agent_id": "ghost", "reason": "选定的下一位不在名单内"}
+    )
+    repo.close()
+    return run.run_id
 
 
 def test_usage_error_exit_2(capsys, db):
