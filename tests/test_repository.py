@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from agora.adapter.repository import Repository
+from agora.errors import TURN_ALREADY_PRODUCED, DomainError
 
 
 @pytest.fixture
@@ -54,6 +55,17 @@ async def test_consecutive_append_no_loss_no_dup(repo):
     seqs = [t.seq for t in await repo.read_transcript("r1")]
     assert seqs == list(range(1, 51))
     assert len(seqs) == len(set(seqs)) == 50
+
+
+# ── AC-06 — 同 turn 二次产出被拒（每 turn 恰好一条）────────────────────
+
+@pytest.mark.asyncio
+async def test_second_produce_in_same_turn_is_blocked(repo):
+    await repo.append_turn("r1", "alice", "第一次")  # seq=1 已落桌
+    with pytest.raises(DomainError) as exc:
+        await repo.append_turn("r1", "alice", "第二次", seq=1)  # 同 turn 二次产出
+    assert exc.value.code == TURN_ALREADY_PRODUCED
+    assert [t.seq for t in await repo.read_transcript("r1")] == [1]  # 第二条未落桌
 
 
 # ── 跨会话/角色隔离 — AC-16/17 ─────────────────────────────────────────

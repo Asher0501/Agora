@@ -21,6 +21,7 @@ from typing import Any
 from weave_agent_sdk.memory.manager import MemoryManager
 from weave_agent_sdk.types import MemoryConfig
 
+from ..errors import TURN_ALREADY_PRODUCED, DomainError
 from ..namespaces import (
     STATE_KEY_CONFIG,
     STATE_KEY_RECAP,
@@ -73,10 +74,24 @@ class Repository:
 
     # ── 共享转录（append-only，按 seq 有序）────────────────────────────
 
-    async def append_turn(self, run_id: str, agent_id: str, text: str) -> Turn:
-        """追加一条发言，``seq`` 为严格单调的 ``max(existing)+1``。"""
-        recent = self._memory.stream.last(1, [run_stream_ns(run_id)])
-        seq = (recent[0]["seq"] + 1) if recent else 1
+    async def append_turn(
+        self, run_id: str, agent_id: str, text: str, seq: int | None = None
+    ) -> Turn:
+        """追加一条发言，``seq`` 为严格单调的 ``max(existing)+1``（缺省）或显式指定。
+
+        AC-06（每 turn 恰好一条，Flow 6）：显式 ``seq`` 且该 turn 已落桌 → 抛
+        ``TURN_ALREADY_PRODUCED``，不产生第二条。缺省 ``seq`` 由 ``max+1`` 保证
+        单调、天然不重复；显式路径用于守卫并发/二次产出的重入。
+        """
+        if seq is None:
+            recent = self._memory.stream.last(1, [run_stream_ns(run_id)])
+            seq = (recent[0]["seq"] + 1) if recent else 1
+        else:
+            existing = self._memory.stream.last(_READ_ALL, [run_stream_ns(run_id)])
+            if any(int(e["seq"]) == seq for e in existing):
+                raise DomainError(
+                    TURN_ALREADY_PRODUCED, f"turn {seq} 已产出，拒绝同 turn 二次产出"
+                )
         now = time.time()
         entry = {"seq": seq, "agent_id": agent_id, "text": text, "created_at": now}
         self._memory.stream.append(entry, run_stream_ns(run_id))
