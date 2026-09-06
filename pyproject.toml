@@ -14,10 +14,11 @@ dependencies = [
 
 [project.scripts]
 brainstorm = "brainstorm.cli:main"
+agora = "agora.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["brainstorm*"]
+include = ["agora*", "brainstorm*"]
 
 [tool.ruff]
 line-length = 100
