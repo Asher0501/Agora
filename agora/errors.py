@@ -24,7 +24,7 @@ class DomainError(Exception):
         return d
 
 
-# 9 个错误码登记（public-api.md §3 表，一一对应 AC）。
+# 12 个错误码登记（public-api.md §3 表）。前 9 个一一对应 AC。
 UNKNOWN_CAPABILITY = "agora.unknown_capability"  # AC-03
 ROLE_DESCRIPTION_REQUIRED = "agora.role_description_required"  # AC-04
 OUTPUT_JUDGE_MISMATCH = "agora.output_judge_mismatch"  # AC-13
@@ -35,7 +35,7 @@ RUN_CORRUPTED = "agora.run_corrupted"  # AC-15b
 INVALID_STATE = "agora.invalid_state"  # 对已结束的会话继续接力（Flow 1）
 TURN_ALREADY_PRODUCED = "agora.turn_already_produced"  # AC-06
 
-# 配置结构校验（ADR-0005 校验面）——超出 §3 的 9 个 AC 派生码，属加载时校验的额外类别。
+# 配置结构校验（ADR-0005 校验面）——3 个加载时校验的额外类别码（§3 表）。
 RESERVED_AGENT_ID = "agora.reserved_agent_id"  # 保留字 `events` 不得作为 agent_id
 INVALID_PLACEHOLDER = "agora.invalid_placeholder"  # 模板占位符与 inject 字段名不匹配
 INVALID_CONFIG = "agora.invalid_config"  # max/window 数值非法、judge/picker 引用不存在的角色

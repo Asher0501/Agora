@@ -45,7 +45,7 @@ class StopConfig:
 
 @dataclass(frozen=True)
 class SummaryConfig:
-    """config.scenario.summary — 最小形状（api-sync-report §C-2 待 data-model ratify）。"""
+    """config.scenario.summary — 最小形状（role/key/window，data-model §RUN summary 已 ratify）。"""
 
     role: str  # 为哪个角色摘要
     key: str  # 写入私有 state 的键

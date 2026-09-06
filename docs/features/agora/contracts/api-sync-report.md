@@ -27,7 +27,7 @@ feature_size: "L"
 | StopConfig.type | data-model config.scenario.stop.type（fixed_rounds\|llm_verdict\|manual） | high |
 | StopConfig.max | data-model config.scenario.stop.max | high |
 | StopConfig.judge | data-model config.scenario.stop.judge | high |
-| **SummaryConfig** | data-model config.scenario.summary（仅 `{...}\|null`，**无字段级定义**） | **low** |
+| **SummaryConfig** | data-model config.scenario.summary（`role`/`key`/`window`，已 ratify） | high |
 | ScenarioConfig.scenario | data-model config.scenario.name | high |
 | RuntimeValues.topic | data-model config.runtime.topic | high |
 | RuntimeValues.stance | data-model config.runtime.stance | high |
@@ -92,27 +92,21 @@ feature_size: "L"
 > 点 1–3 为核心；任一 ✗ 或合计 ≥3 旗标会暂停。点 4 为支撑，✗ 记后续。
 
 1. **公开符号 ↔ data-model**（core）— **✓**。每个公开类型/函数映射到 data-model 实体（RUN/TURN/AGENT/PRIVATE_STATE 或 config 快照字段）或 atomic-relay 原子；无凭空字段。唯一低置信度为 `SummaryConfig`（见 §C-2）。
-2. **错误码 ↔ 仓库错误登记**（core）— **✓（有记录）**。契约 `agora.*` 是**新包**提案；仓库现仅有 brainstorm `business/errors.py` 的 `session.*`。`agora.*` 按 1:1 中性化映射（SAD §2/§8），落地时在 `agora/errors.py` 建立登记表即可。9 个错误码逐一对应 AC（§3 表），无游离码。
+2. **错误码 ↔ 仓库错误登记**（core）— **✓**。契约 `agora.*` 已落地：`agora/errors.py` 登记 12 个错误码（§3 表）——前 9 个逐一对应 AC（AC-03/04/13/02b/15b/06 等），后 3 个为加载时校验类别（`reserved_agent_id`/`invalid_placeholder`/`invalid_config`）。无游离码。
 3. **校验 ↔ 约束**（core）— **✓**。data-model 明示「无 DDL 约束，不变式在应用层强制（AC-02/03/04/13，ADR-0005）」；契约把 `max`/`window`/`output` 枚举、角色描述必填、能力 ∈ 菜单 ∪ 已注册扩展、output↔select/stop 匹配全部落在 `validate_config` 面（§6）。data-model 未给 `window`/`max` 数值上限 → 契约亦不写死（未发明约束）。
 4. **契约 ↔ 序列**（supporting）— **✓**。§6 的 12 条 flow 均有对应公开入口：Flow 1→`relay`、Flow 2/3→`create_run`+`validate_config`、Flow 4→`Selector`、Flow 5→`Terminator`、Flow 6→`agora.turn_already_produced`、Flow 7→`Summarizer`、Flow 8→`stop_run`、Flow 9→`register_capability`、Flow 10→`resume_run`、Flow 11→`subscribe`/`Observer`、Flow 12→`read_transcript`+namespace 隔离。无孤儿 flow。
 
-**结论**：4/4 ✓，无核心旗标。两条**上游反哺**缺口（§C）按 Save-as-OQ 处理（上游 stage 为 owner），不阻塞本契约。
+**结论**：4/4 ✓，无核心旗标。两条上游反哺缺口（§C）已在实现阶段收口（T23），无未决项。
 
 ## C. Back-feed（上游缺口，非 api 缺陷）
 
-### C-1. SAD 命名漂移：`session_id` → `run_id`（owner: design，due: before tasks）
+### C-1. ~~SAD 命名漂移：`session_id` → `run_id`~~（已收口，T23）
 
-`data-model.md` 已把 Session/Speech/Persona 中性化为 **Run/Turn/Agent**、命名空间根为 `agora:{run_id}:*`（本轮确认），但 `sad.md` 仍有 `session_id` 残名：
+`data-model.md` 已把 Session/Speech/Persona 中性化为 **Run/Turn/Agent**、命名空间根为 `agora:{run_id}:*`；`sad.md` 的 `session_id` 残名已在实现阶段（T23）全部回改为 `run_id`，与 data-model/契约/代码一致。本条反哺项关闭。
 
-- §2 Constraints「根前缀中性化（`agora:{session_id}:*`）」
-- §8 ID strategy「`session_id`（UUID）」
-- §6 多条 flow 的 `session_id`/「会话」措辞（与 data-model 的 `run_id` 措辞不一致）
+### C-2. ~~`SummaryConfig` 形状未定义~~（已收口，T23）
 
-本契约**按 data-model 的 `run_id` 落笔**（data-model 是类型来源）。`sad.md` 的 `session_id` 需由 `design` 统一回改，否则 `tasks` 读 SAD + 契约时会看到两个标识符名。
-
-### C-2. `SummaryConfig` 形状未定义（owner: data-model，due: before tasks）
-
-`data-model.md` 的 config 快照记 `"summary": {...}|null`，但 `atomic-relay.md` §2 配置 schema **不含** `summary` 段，data-model 亦未展开字段级定义。契约把 `SummaryConfig` 标为 `# unresolved`（opaque），**未发明形状**。摘要原子（US-06 / AC-12）是真实特性，其配置形状（注入哪些字段？写入哪个私有 key？窗口？）需 `data-model` 补齐，否则 `tasks` 无法分解摘要任务的输入结构。
+`SummaryConfig` 已 ratify 为最小形状 `role`/`key`/`window`（`data-model.md` §RUN summary、`public-api.md` §2.1、`agora/types.py` 三处一致）。摘要原子（US-06 / AC-12）的配置输入结构已明确。本条反哺项关闭。
 
 ## D. 约定与默认
 

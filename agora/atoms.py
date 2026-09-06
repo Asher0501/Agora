@@ -44,9 +44,7 @@ class Selector(Protocol):
 class Terminator(Protocol):
     """判停原子：决定是否结束接力（ADR-0007 判停先于产出）。
 
-    注：协议为 ``async``——``llm_verdict`` 需调 judge 的 LLM（public-api §4
-    把 ``should_stop`` 写作 sync 是与该原子 async 性的偏差，此处按实现需要
-    统一为 async）。
+    协议为 ``async``——``llm_verdict`` 需调 judge 的 LLM（与 public-api §4 一致）。
     """
 
     async def should_stop(self, ctx: dict[str, Any]) -> StopDecision: ...

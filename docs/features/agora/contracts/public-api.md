@@ -24,7 +24,7 @@ agora 把 brainstorm 已证明可行的「多角色按序接力 + 共享转录 +
 | Module | 公开符号 | 契约角色 |
 |---|---|---|
 | `agora.types` | `Run` `Turn` `Agent` `ScenarioConfig` `RoleConfig` `SelectConfig` `StopConfig` `SummaryConfig` `RuntimeValues` `Verdict` `Recap` `RunOutcome` `Turn` 等 | 中性类型（data-model 实体） |
-| `agora.errors` | `DomainError` + 9 个错误码 | 错误信封 `{code, message, details?}` |
+| `agora.errors` | `DomainError` + 12 个错误码 | 错误信封 `{code, message, details?}` |
 | `agora.namespaces` | `run_stream_ns` / `run_state_ns` / `run_events_ns` / `agent_stream_ns` / `agent_state_ns` | 命名空间构造（隔离载体） |
 | `agora.atoms` | `LLM` `OutputSpec` `Parsed` `Selector` `Terminator` `StreamStore` `StateStore` `Summarizer` `render` `parse` | 五原子协议 + 产出/解析 |
 | `agora.relay` | `relay` | 接力循环（选人→判停→产出→落桌） |
@@ -165,6 +165,9 @@ class DomainError(Exception):
 | `agora.run_corrupted` | 恢复损坏的会话 | AC-15b（Flow 10） |
 | `agora.invalid_state` | 对已结束的会话继续接力 | Flow 1（镜像 brainstorm `session.invalid_state`） |
 | `agora.turn_already_produced` | 同一 turn 二次产出 | AC-06（Flow 6） |
+| `agora.reserved_agent_id` | 角色 id 取保留字 `events`（与系统事件 namespace 撞名） | 加载时校验（Flow 2） |
+| `agora.invalid_placeholder` | 模板占位符与 inject 字段名不匹配，或缺失字段未注入 | 加载时校验（Flow 2） |
+| `agora.invalid_config` | 配置结构/数值非法（max/window 非整数、judge/picker 引用不存在的角色等） | 加载时校验（Flow 2） |
 
 **不在错误码里**（记录性，非拒绝）：
 
@@ -222,7 +225,7 @@ class StopDecision:
     conclusion: str | None = None
 
 class Terminator(Protocol):
-    def should_stop(self, ctx: dict[str, Any]) -> StopDecision: ...
+    async def should_stop(self, ctx: dict[str, Any]) -> StopDecision: ...
 
 # ⑥ 摘要 —— summary 原子（US-06 / AC-12）
 class Summarizer(Protocol):
