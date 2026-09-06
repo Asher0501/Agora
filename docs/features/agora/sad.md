@@ -43,7 +43,7 @@ target_surfaces: [library-sdk, cli]  # filled in §4 — subset of: backend-serv
 
 **Technical.**
 - Python ≥3.11（weave `requires-python = ">=3.11"`；ruff/mypy target py311）。
-- weave **0.1.0**（外部依赖：LLM + Memory；本轮在 `pyproject.toml` 正式声明并固定版本）。PyYAML ≥6.0（唯一显式运行时依赖，配置解析）。
+- weave_agent_sdk **0.2.0**（外部依赖：LLM + Memory；在 `pyproject.toml` 正式声明）。PyYAML ≥6.0（配置解析）。
 - SQLite（经 weave `memory_entries` 单表，`namespace + access_type + key` 三键隔离；无 ORM）。
 - asyncio（标准库，会话并发）+ argparse（标准库，CLI）；无 pydantic/click/typer。
 - LLM 经 weave `BaseLLM` 适配（deepseek / anthropic / openai 可插拔；离线 `FakeLLM`）。
@@ -57,7 +57,7 @@ target_surfaces: [library-sdk, cli]  # filled in §4 — subset of: backend-serv
 **Conventions.**
 - 依赖方向单向（`tests/test_domain.py` 断言 business 不 import weave）。
 - 命名：agora 需中性化 brainstorm 的领域词汇（Session/Speech/Persona → 中性 turn/agent/run 概念）。
-- 隔离：namespace 按会话隔离，根前缀中性化（`agora:{session_id}:*`，取代硬编码的 `brainstorm:`/`persona:`）。
+- 隔离：namespace 按会话隔离，根前缀中性化（`agora:{run_id}:*`，取代硬编码的 `brainstorm:`/`persona:`）。
 - 错误码中性化（去掉 `session.*` 的 brainstorm 前缀语义）。
 
 **Regulatory / external.**
@@ -77,7 +77,7 @@ agora 引擎让**场景作者（Scenario Author）**用一份声明式 YAML 配�
 |---|---|---|
 | 场景作者（Scenario Author） | Person | 定义场景（YAML 配置 + 运行时值注入），零引擎代码 |
 | 发起人（Host） | Person | 提供运行时值，启动/停止/观察会话，订阅进度事件 |
-| weave 框架 0.1.0 | System (external) | LLM + Memory 适配（BaseLLM / MemoryManager），唯一集成点 |
+| weave_agent_sdk 0.2.0 | System (external) | LLM + Memory 适配（BaseLLM / MemoryManager），唯一集成点 |
 | LLM 提供方 | System (external) | 生成角色发言文本（deepseek / anthropic / openai） |
 | SQLite 记忆库 | System (external datastore) | 持久化共享转录、会话状态、角色私有状态 |
 
@@ -92,7 +92,7 @@ C4Context
     Person(author, "场景作者 Scenario Author", "定义场景（YAML 配置 + 运行时值注入）")
     Person(host, "发起人 Host", "提供运行时值，启动/停止/观察会话")
     System(app, "agora 引擎", "无语义的接力协作内核：按序接力 + 共享转录 + 判停 + 持久化恢复")
-    System_Ext(weave, "weave 框架 0.1.0", "LLM + Memory 适配")
+    System_Ext(weave, "weave_agent_sdk 0.2.0", "LLM + Memory 适配")
     System_Ext(llm, "LLM 提供方", "生成角色发言文本")
     SystemDb(store, "SQLite 记忆库", "共享转录、会话状态、角色私有状态")
 
@@ -113,7 +113,7 @@ C4Context
 2. **扩展区作为受控逃生门**（ADR-0004）— 菜单之外的自定义能力走扩展区，独立于标准菜单、接口风格可自定义；本轮不承诺稳定/版本化；信任边界 = 同进程、视为受信代码、读范围以 AC-16/17 为界。
 3. **配置校验一等能力**（ADR-0005）— 非法配置加载时 100% 拒绝 + 可读原因；「已知能力」= 闭集菜单 ∪ 已注册扩展能力（扩展先注册、后加载，未注册即拒）。
 4. **新建中性 `agora/` 包**（ADR-0002）— 内核与场景解耦：新建无语义 `agora/`（类型/命名空间/错误码全部中性化），brainstorm 迁移为它的第一个场景配置（实证零代码扩展）。
-5. **单一 SQLite + 中性命名空间 + 恢复快照**（ADR-0006）— 单一 SQLite 库、`agora:{session_id}:*` 中性命名空间、resume 按创建时快照配置（避免半程改配置）。
+5. **单一 SQLite + 中性命名空间 + 恢复快照**（ADR-0006）— 单一 SQLite 库、`agora:{run_id}:*` 中性命名空间、resume 按创建时快照配置（避免半程改配置）。
 6. **判停先于产出的接力循环**（ADR-0007）— 每轮循环：选人 → 判停 →（未停才）产出 → 落桌，避免「收敛前多一条发言」（对齐 AC-09/AC-10b）。
 
 **引擎无语义边界**（内联，非 ADR）— 引擎只强制「业务无关」机制（防失控空转的条数上限、每 turn 恰好一条、跨会话隔离）；「业务可被 prompt 解决」的行为（如防止选人者反复点中同一角色、自选自判）留给场景作者在 prompt 约束，不写成引擎结构校验（spec §8 OQ1 裁决，§11 记录为已接受风险）。
@@ -162,7 +162,7 @@ C4Container
     }
 
     ContainerDb(store, "SQLite 记忆库", "SQLite", "共享转录、会话状态、角色私有状态")
-    System_Ext(weave, "weave 框架 0.1.0", "LLM + Memory 适配")
+    System_Ext(weave, "weave_agent_sdk 0.2.0", "LLM + Memory 适配")
     System_Ext(llm, "LLM 提供方", "生成角色发言文本")
 
     Rel(author, cli, "定义场景", "YAML 配置")
@@ -226,7 +226,242 @@ sequenceDiagram
     end
 ```
 
-**Flagged items（`sequences` 阶段覆盖，本阶段不画）：** 运行时值校验 / 场景不存在（AC-02b）、resume 恢复（AC-15）、手动停止（AC-11）、选人无效回退（AC-07b）、裁判解析失败回退（spec §8 OQ4）、进度事件（AC-18）——`sequences` 按 §5 AC 全覆盖。
+### Flow 3 · 启动会话：运行时值校验与会话创建（AC-02 / AC-02b）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as client
+    participant S as service
+    participant D as data-store
+
+    Note over C,S: Precondition: 场景配置已通过加载校验（Flow 2 合法分支之后）
+    C->>S: 启动会话（场景引用 + 运行时值）
+    S->>D: 查场景配置是否存在
+    D-->>S: 场景配置（或不存在）
+    alt 场景不存在
+        S-->>C: 拒绝启动（引用不存在的场景）
+    else 运行时值非法（如缺主题）
+        S-->>C: 拒绝启动（说明缺哪个运行时值）
+    else 合法
+        S->>D: 写会话状态 + 配置快照 + 运行时值
+        Note over S,D: persists 会话（session）+ 配置快照 + 运行时值
+        D-->>S: ack
+        S-->>C: 会话已创建并开始（返回 run_id）
+    end
+    Note over C,S: Postcondition: 会话已创建，场景与运行时值定格为创建时快照（ADR-0006），可进入接力循环
+```
+
+### Flow 4 · 选人路由：选下一位与无效回退（AC-07 / AC-07b）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as service
+    participant X as external-system
+    participant D as data-store
+
+    Note over S: Precondition: 某角色刚完成一次发言，接力循环进入选人路由步骤（Flow 1 内的选人）
+    S->>X: 调用选人者生成下一位
+    X-->>S: 选人结果
+    S->>S: 解析选人结果，校验是否在角色名单内
+    alt 不在名单内
+        Note over S: 记录观测事件（第 1 次无效选择）
+        S->>X: 让选人者重选（重试 1 次）
+        X-->>S: 第二次选人结果
+        S->>S: 再次校验
+    end
+    alt 最终有效
+        S->>S: 采纳选人结果（下一位发言者）
+    else 最终仍无效
+        S->>S: 回退到角色名单顺序选取下一位
+        Note over S: 记录观测事件（第 2 次无效选择）
+    end
+    S->>D: 记录下一位发言者（路由结果）
+    Note over S,D: persists 下一位发言者（本轮路由结果）
+    D-->>S: ack
+```
+
+### Flow 5 · 判停与终止：三种路径 + 裁判解析失败回退（AC-08 / AC-09 / AC-10b / OQ4）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as service
+    participant X as external-system
+    participant D as data-store
+
+    Note over S: Precondition: 本轮已选出下一位发言者，产出前先判停（ADR-0007 判停先于产出）
+    S->>S: 判定判停方式（裁判判定 / 固定条数 / 条数上限兜底）
+    opt 裁判判定
+        S->>X: 调用裁判判定是否收敛（基于共享转录）
+        X-->>S: 裁判产出
+        S->>S: 解析裁判产出
+        opt 解析失败（不含预期格式）
+            Note over S: 确定性回退：视为未收敛 + 记录观测事件
+        end
+    end
+    S->>S: 汇总条数（固定阈值 / 上限）与裁判结论
+    alt 达固定条数（AC-09）
+        S->>D: 标记会话结束 + 产出一份会话总结（不多产出一条）
+        Note over S,D: persists 结束状态 + 总结（final recap）
+        D-->>S: ack
+    else 裁判宣告收敛（AC-08）
+        S->>D: 标记会话结束 + 写结论（verdict）+ 产出一份会话总结
+        Note over S,D: persists 结论（verdict）+ 总结（final recap）
+        D-->>S: ack
+    else 达条数上限但未收敛（AC-10b）
+        S->>D: 强制结束会话 + 产出一份会话总结并标注「未收敛」
+        Note over S,D: persists 结束状态 + 总结（标注未收敛）
+        D-->>S: ack
+    else 未停
+        S->>S: 继续接力（进入产出步骤）
+    end
+```
+
+### Flow 6 · 接力不变量：每个 turn 恰好一条发言（AC-06）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as service
+    participant X as external-system
+    participant D as data-store
+
+    Note over S: Precondition: 接力循环中，某角色进入产出步骤（Flow 1 的产出，判停未停之后）
+    S->>S: 检查当前 turn 是否已产出过发言
+    alt 已产出过（同一 turn 二次产出请求）
+        S->>S: 阻止产出：不调用生成、不落桌，保持每 turn 恰好一条
+    else 未产出过
+        S->>X: 调用角色产出发言
+        X-->>S: 发言
+        S->>D: 追加发言（顺序号 seq + 发言者）
+        Note over S,D: persists 发言（turn + seq + 发言者）—— seq 单调递增，支撑追加顺序不变量
+        D-->>S: ack
+    end
+```
+
+### Flow 7 · 摘要入私有状态：跨轮连续性（AC-12 / US-06）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as service
+    participant X as external-system
+    participant D as data-store
+
+    Note over S: Precondition: 场景为某角色配置了「共享转录摘要入私有状态」
+    S->>X: 调用摘要原子：压缩共享转录
+    X-->>S: 摘要文本
+    S->>D: 写摘要到该角色的私有状态
+    Note over S,D: persists 角色私有状态（summary）—— 按角色/会话 namespace 隔离
+    D-->>S: ack
+    Note over S: 后续该角色轮到时（跨轮）
+    S->>D: 读该角色的私有状态（summary）
+    D-->>S: 摘要
+    S->>X: 据此产出发言（注入摘要 + 主题 + 历史发言）
+    X-->>S: 发言
+```
+
+### Flow 8 · 手动停止（AC-11）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as client
+    participant S as service
+    participant X as external-system
+    participant D as data-store
+
+    Note over C,S: Precondition: 会话进行中，场景配置了「手动停止」，某角色正在生成发言（in-flight）
+    C->>S: 发出停止指令
+    S->>X: 取消当前正在进行的生成
+    Note over S,X: 在途发言被取消、不落桌
+    S->>D: 标记会话结束 + 产出一份会话总结（标注「手动停止」）
+    Note over S,D: persists 结束状态 + 总结（final recap，标注手动停止）
+    D-->>S: ack
+    S-->>C: 会话已停止（返回总结）
+```
+
+### Flow 9 · 扩展区自定义能力（AC-14 / US-08）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as service
+    participant D as data-store
+
+    Note over S: Precondition: 扩展者已在扩展区注册自定义能力（先注册后加载，ADR-0005）；场景配置引用它，Flow 2 校验已通过
+    S->>S: 接力循环到达该扩展能力的调用点
+    S->>S: 调用扩展区代码（同进程受信）
+    Note over S: 扩展能力生效，结果回传接力循环；标准菜单与引擎其余部分不受影响
+    S->>D: 该能力产出若需持久化，经引擎写入（走标准接力持久化路径）
+    Note over S,D: persists 扩展能力产出（若有）—— 走标准 namespace 隔离，不新增独立通道
+    D-->>S: ack
+```
+
+### Flow 10 · 会话恢复（AC-15 / AC-15b）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as client
+    participant S as service
+    participant D as data-store
+
+    Note over C,S: Precondition: 会话因故障中断，已有若干发言落桌（Flow 1 的追加已持久化）
+    C->>S: 恢复会话（run_id）
+    S->>D: 读会话：配置快照 + 已落桌转录（按 seq）+ 各角色私有状态
+    D-->>S: 会话数据（或不存在 / 损坏）
+    alt 会话不存在或损坏
+        S-->>C: 拒绝恢复（说明原因）
+    else 会话存在
+        S->>S: 恢复到中断那一轮：丢弃未落桌的在途发言，该轮重试
+        Note over S,D: 已落桌不重放不丢失；私有状态一并恢复（ADR-0006 快照）—— data-model 需按 run_id 索引快照 / 转录 / 私有状态
+        S-->>C: 恢复完成，继续接力循环
+    end
+```
+
+### Flow 11 · 进度事件：命名空间隔离的发布-订阅（AC-18）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as client
+    participant S as service
+
+    Note over C,S: Precondition: 会话进行中（Flow 1 接力循环），引擎按 §8 发进度事件（回合开始 / 发言落桌 / 收敛 / 停止）
+    C->>S: 订阅进度事件（run_id）
+    S->>S: 按订阅者 namespace 过滤事件内容
+    Note over S: 事件只携带本会话（本 namespace）内容，不含他会话转录摘录或私有状态
+    S-->>C: 进度事件流（回合开始 / 发言落桌 / 收敛 / 停止）
+```
+
+### Flow 12 · 跨会话 / 角色隔离（AC-16 / AC-17）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as client
+    participant S as service
+    participant D as data-store
+
+    Note over C,S: Precondition: 角色（会话 A）或发起人发起一次读请求（共享转录 / 私有状态）
+    C->>S: 读共享转录 / 私有状态（携带自身 run_id + role）
+    S->>S: 校验请求 namespace 是否匹配请求者（会话 A 角色只能读会话 A；发起人只能读自己名下的会话）
+    alt 跨会话 / 跨角色
+        S-->>C: 拒绝（不暴露他会话转录 / 他角色私有状态）
+    else 本会话 / 本角色
+        S->>D: 读本 namespace 数据
+        D-->>S: 数据
+        S-->>C: 返回数据
+    end
+```
+
+**Flagged items（`sequences` 收尾记录）：**
+- **命名差异**：既有 Flow 1/2（`design` 种子图）用具体容器名（Host/CLI/Engine/Weave/LLM/Store），新增 Flow 3–12 按 `sequences` 规范用通用角色名（client/service/data-store/external-system）——两者未强制统一，留给 `design` 对齐（`sequences` 不改既有图）。
+- **全部同步流**：本特性为本地单进程 CLI + 库；LLM 为同步请求/响应、进度事件为进程内观察——无 webhook/队列/定时任务，故无幂等键/重试/死信仪式。
+- **无新增 ADR 候选**：选人重试 1 次、裁判解析失败回退均已由 §8/OQ 裁决；手动停止、resume 快照均已由 ADR-0006/§4 覆盖。
 
 ## 7. Deployment view
 
@@ -245,10 +480,10 @@ sequenceDiagram
 
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | 结构化日志，字段 `module=<name>`、`session_id` | 此处（§8） |
+| Logging | 结构化日志，字段 `module=<name>`、`run_id` | 此处（§8） |
 | Error handling | 单一 `DomainError`（snake_case 中性错误码 `agora.*`，取代 brainstorm 的 `session.*`）+ 中文可读 message + details；领域哨兵 → adapter 映射 → CLI 退出码/提示 | 此处（§8） |
-| Authorization / Isolation | 会话/角色按 namespace 隔离（`agora:{session_id}:*` 共享 + 角色私有），跨会话/角色读写被拒（AC-16/17） | ADR-0006；spec §6.1 |
-| ID strategy | `session_id`（UUID）；发言按追加顺序号 `seq`（应用层单调递增） | 此处（§8） |
+| Authorization / Isolation | 会话/角色按 namespace 隔离（`agora:{run_id}:*` 共享 + 角色私有），跨会话/角色读写被拒（AC-16/17） | ADR-0006；spec §6.1 |
+| ID strategy | `run_id`（UUID）；发言按追加顺序号 `seq`（应用层单调递增） | 此处（§8） |
 | Internationalisation | N/A，单语言（zh） | — |
 | Observability | 进度事件 + 会话/回合边界 span | 此处（§8）+ §7 |
 | Events | 进度事件（回合开始/发言落桌/收敛/停止），不承载控制流（沿用 brainstorm ADR-0004 语义） | 此处（§8） |
@@ -337,4 +572,4 @@ ADR files live under `docs/features/agora/adr/NNNN-<title>.md`.
 | 私有状态（Private state） | 角色跨轮携带的私有笔记/草稿，他人不可见；可由摘要填充 |
 | 结论（Verdict） | 裁判判停路径产出的收敛判断；仅裁判收敛路径产出 |
 | 总结（Final recap） | 任意终止路径都产出的全局复盘：汇总私有状态 + 共享转录 |
-| 中性命名空间（Neutral namespace） | `agora:{session_id}:*`（共享）+ 角色私有，取代 brainstorm 的 `brainstorm:`/`persona:` 硬编码根 |
+| 中性命名空间（Neutral namespace） | `agora:{run_id}:*`（共享）+ 角色私有，取代 brainstorm 的 `brainstorm:`/`persona:` 硬编码根 |
