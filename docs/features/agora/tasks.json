@@ -216,6 +216,51 @@
       "acs": ["AC-10b"],
       "dod": "OQ4 解析失败 e2e 测试；NFR 阈值对齐 spec + QG-5 并发比率；零 weave 依赖扫全 agora/**（除 adapter）。",
       "files_hint": ["tests/test_loop.py", "tests/test_nfr.py", "tests/test_domain.py"]
+    },
+    {
+      "id": "T25",
+      "title": "修复 prompt 渲染机制（picker/verdict 注入 inject + safe render）",
+      "layer": "app",
+      "deps": [],
+      "acs": [],
+      "dod": "render() 对缺失字段抛可读 DomainError（不裸 KeyError）；LlmPickSelector/LlmVerdictTerminator 经 build_context 注入 name/role_description + 声明 inject（topic/stance/history）；validator 把 summary.key 限定为 summary.role 可用。测试断言 picker/verdict 引用 {topic} 正常渲染、缺失字段抛 DomainError、非 summary 角色引用 {summary.key} 加载时拒绝。",
+      "files_hint": ["agora/atoms.py", "agora/relay.py", "agora/config/validator.py", "tests/test_atoms.py"]
+    },
+    {
+      "id": "T26",
+      "title": "收口契约文档漂移（async 签名 + api-sync-report + 错误码表）",
+      "layer": "docs",
+      "deps": [],
+      "acs": [],
+      "dod": "public-api.md §4 Terminator.should_stop 改为 async def；api-sync-report §C-1/C-2 更新为已收口状态（session_id 已清、SummaryConfig 已 ratify role/key/window）；public-api.md §3 表补登记 reserved_agent_id/invalid_placeholder/invalid_config（共 12 码）；清理 types.py/validator.py 的「待 data-model ratify」过时注释。",
+      "files_hint": ["docs/features/agora/contracts/public-api.md", "docs/features/agora/contracts/api-sync-report.md", "agora/types.py"]
+    },
+    {
+      "id": "T27",
+      "title": "补 CLI stop/resume 成功路径测试",
+      "layer": "tests",
+      "deps": [],
+      "acs": ["AC-11", "AC-15"],
+      "dod": "tests/test_cli.py 补 stop/resume 成功路径：经共享临时 SQLite DB，CLI stop 打印 termination=manual、resume 续跑打印 termination=fixed_rounds + turns=N，退出码 0。",
+      "files_hint": ["tests/test_cli.py"]
+    },
+    {
+      "id": "T28",
+      "title": "配置结构形状守卫（不抛裸 AttributeError/TypeError）",
+      "layer": "app",
+      "deps": ["T25"],
+      "acs": [],
+      "dod": "schema.py _parse_role/_parse_select/_parse_stop/_parse_summary 入口 isinstance(raw, dict) 守卫、roles 逐条 dict 校验，结构形状非法抛 DomainError(INVALID_CONFIG)。测试断言 roles 为标量/null/mapping、select 为字符串时被拒且无裸异常。",
+      "files_hint": ["agora/config/schema.py", "tests/test_config.py"]
+    },
+    {
+      "id": "T29",
+      "title": "llm_verdict 缺 judge / llm_pick 缺 role 加载时拒绝",
+      "layer": "app",
+      "deps": ["T25"],
+      "acs": [],
+      "dod": "validator.py：stop.type==llm_verdict 且 stop.judge 为空、select.type==llm_pick 且 select.role 为空时 raise DomainError(INVALID_CONFIG)。测试断言这两类配置加载时被拒。",
+      "files_hint": ["agora/config/validator.py", "tests/test_config.py"]
     }
   ]
 }
