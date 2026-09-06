@@ -29,7 +29,7 @@
 | T22 | 声明 weave-agent-sdk | wiring | Asher | S | — | done |
 | T23 | 文档漂移收口 | docs | Asher | S | — | done |
 | T24 | 测试缺口补全 | tests | Asher | M | T20 | done |
-| T25 | 修复 prompt 渲染机制 | app | Asher | M | — | todo |
+| T25 | 修复 prompt 渲染机制 | app | Asher | M | — | done |
 | T26 | 收口契约文档漂移 | docs | Asher | S | — | todo |
 | T27 | 补 CLI stop/resume 测试 | tests | Asher | S | — | todo |
 | T28 | 配置结构形状守卫 | app | Asher | S | T25 | todo |

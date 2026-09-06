@@ -154,6 +154,18 @@ def test_non_numeric_window_rejected():
     assert exc.value.code == INVALID_CONFIG
 
 
+# ── T25 — summary.key 限定 summary.role ────────────────────────────────
+
+def test_summary_key_scoped_to_summary_role():
+    raw = _raw()
+    raw["summary"] = {"role": "alice", "key": "memo"}
+    # bob（非 summary 角色）引用 {memo} → 加载时拒绝
+    raw["roles"].append({"id": "bob", "prompt": "我的备忘：{memo}", "inject": [], "output": "free_text"})
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == INVALID_PLACEHOLDER
+
+
 # ── 扩展能力注入（T6 前置：known_capabilities 注入）────────────────────
 
 def test_custom_capability_accepted_when_registered():

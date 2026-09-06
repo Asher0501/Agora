@@ -17,6 +17,7 @@ from agora.atoms import (
     parse,
     render,
 )
+from agora.errors import INVALID_PLACEHOLDER, DomainError
 from agora.types import Agent, RoleConfig, Turn
 
 # ── 产出解析 — public-api §4 ③ ─────────────────────────────────────────
@@ -117,7 +118,7 @@ def _roster(*ids: str):
 
 @pytest.mark.asyncio
 async def test_llm_pick_selects_valid_agent():
-    picker = RoleConfig(id="mod", prompt="选下一位：{history}", output="pick_next")
+    picker = RoleConfig(id="mod", prompt="选下一位：{history}", inject=["history"], output="pick_next")
     sel = LlmPickSelector(_FixedLLM("NEXT:bob"), picker)
     s = await sel.next(_roster("alice", "bob"), [])
     assert s.agent_id == "bob"
@@ -125,7 +126,7 @@ async def test_llm_pick_selects_valid_agent():
 
 @pytest.mark.asyncio
 async def test_llm_pick_flags_off_roster_choice():
-    picker = RoleConfig(id="mod", prompt="{history}", output="pick_next")
+    picker = RoleConfig(id="mod", prompt="{history}", inject=["history"], output="pick_next")
     sel = LlmPickSelector(_FixedLLM("NEXT:ghost"), picker)
     s = await sel.next(_roster("alice"), [])
     assert s.invalid_choice == "ghost"
@@ -134,7 +135,7 @@ async def test_llm_pick_flags_off_roster_choice():
 
 @pytest.mark.asyncio
 async def test_llm_verdict_converges():
-    judge = RoleConfig(id="judge", prompt="{history}", output="verdict")
+    judge = RoleConfig(id="judge", prompt="{history}", inject=["history"], output="verdict")
     term = LlmVerdictTerminator(_FixedLLM("CONVERGE:正方"), judge)
     d = await term.should_stop({"current_seq": 1, "max": 20, "transcript": []})
     assert d.stop is True and d.termination == "converged" and d.converged
@@ -142,7 +143,7 @@ async def test_llm_verdict_converges():
 
 @pytest.mark.asyncio
 async def test_llm_verdict_caps_when_unconverged_at_max():
-    judge = RoleConfig(id="judge", prompt="{history}", output="verdict")
+    judge = RoleConfig(id="judge", prompt="{history}", inject=["history"], output="verdict")
     term = LlmVerdictTerminator(_FixedLLM("CONTINUE"), judge)
     d = await term.should_stop({"current_seq": 20, "max": 20, "transcript": []})
     assert d.stop is True and d.termination == "cap_unconverged"
@@ -158,7 +159,7 @@ async def test_manual_stops_on_flag():
 @pytest.mark.asyncio
 async def test_llm_verdict_parse_failure_at_cap_still_stops():
     # AC-10b：即便裁判产出解析失败，达条数上限也强制结束（不空转）
-    judge = RoleConfig(id="judge", prompt="{history}", output="verdict")
+    judge = RoleConfig(id="judge", prompt="{history}", inject=["history"], output="verdict")
     term = LlmVerdictTerminator(_FixedLLM("乱码"), judge)
     d = await term.should_stop({"current_seq": 5, "max": 5, "transcript": []})
     assert d.stop is True and d.termination == "cap_unconverged"
@@ -175,3 +176,47 @@ def test_parse_failure_and_stop_decision_shapes():
     assert Parsed().parse_failure is False
     assert Selection().agent_id is None
     assert StopDecision(stop=True).termination is None
+
+
+# ── T25 — safe render + picker/verdict 注入 inject ─────────────────────
+
+def test_render_missing_field_raises_domain_error():
+    with pytest.raises(DomainError) as exc:
+        render("主题：{topic}", {"name": "x"}, 0)
+    assert exc.value.code == INVALID_PLACEHOLDER
+
+
+class _CaptureLLM:
+    """记录收到的 prompt，供断言注入字段是否真被渲染。"""
+
+    def __init__(self, reply: str):
+        self.reply = reply
+        self.prompt: str | None = None
+
+    async def complete(self, prompt: str) -> str:
+        self.prompt = prompt
+        return self.reply
+
+
+@pytest.mark.asyncio
+async def test_llm_pick_injects_declared_topic():
+    picker = RoleConfig(
+        id="mod", prompt="主题：{topic} | 历史：{history}", inject=["topic", "history"], output="pick_next"
+    )
+    llm = _CaptureLLM("NEXT:bob")
+    sel = LlmPickSelector(llm, picker, topic="测试主题")
+    s = await sel.next(_roster("alice", "bob"), [])
+    assert s.agent_id == "bob"
+    assert llm.prompt is not None and "测试主题" in llm.prompt
+
+
+@pytest.mark.asyncio
+async def test_llm_verdict_injects_declared_topic():
+    judge = RoleConfig(
+        id="judge", prompt="主题：{topic} | 历史：{history}", inject=["topic", "history"], output="verdict"
+    )
+    llm = _CaptureLLM("CONTINUE")
+    term = LlmVerdictTerminator(llm, judge, topic="测试主题")
+    d = await term.should_stop({"current_seq": 1, "max": 20, "transcript": []})
+    assert d.stop is False
+    assert llm.prompt is not None and "测试主题" in llm.prompt

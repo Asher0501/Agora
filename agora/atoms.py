@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .errors import INVALID_PLACEHOLDER, DomainError
 from .types import Agent, OutputKind, RoleConfig, Termination, Turn
 
 # ── 协议 ────────────────────────────────────────────────────────────────
@@ -99,18 +100,55 @@ class StopDecision:
     parse_failure: bool = False  # llm_verdict 裁判解析失败（OQ4，视为未收敛）
 
 
+class _SafeDict(dict[str, Any]):
+    """缺失字段抛可读 ``DomainError``，而非裸 ``KeyError``（render 的兜底）。"""
+
+    def __missing__(self, key: str) -> Any:
+        raise DomainError(INVALID_PLACEHOLDER, f"模板占位符 {{{key}}} 未注入可用字段")
+
+
+def build_context(
+    role: RoleConfig,
+    *,
+    topic: str | None = None,
+    stance: str | None = None,
+    transcript: list[Turn] | None = None,
+    summary_key: str | None = None,
+    summary_text: str | None = None,
+) -> dict[str, Any]:
+    """构造 render 上下文：身份字段 + 声明 inject 字段 + summary（若适用）。
+
+    产出 / 选人 / 判停三处共用，保证 prompt 引用的字段一定可注入——输出正确
+    prompt，而非给校验器堆占位符白名单（render-over-validate）。
+    """
+    full: dict[str, Any] = {
+        "name": role.id,
+        "role_description": role.prompt,
+        "topic": topic or "",
+        "stance": stance or "",
+        "history": transcript or [],
+    }
+    if summary_key is not None:
+        full[summary_key] = summary_text or ""
+    inject = set(role.inject) | {"name", "role_description"}
+    if summary_key is not None:
+        inject.add(summary_key)
+    return {k: v for k, v in full.items() if k in inject}
+
+
 def render(template: str, ctx: dict[str, Any], window: int) -> str:
     """注入上下文字段 + 把 ``ctx["history"]`` 截断到最近 ``window`` 条再替换。
 
     ``window <= 0`` 表示不截断（全量 history）。history 条目可为 ``Turn``
-    （格式化为 ``agent_id: text``）或任意可 ``str()`` 的值。
+    （格式化为 ``agent_id: text``）或任意可 ``str()`` 的值。缺失字段抛
+    ``DomainError``（INVALID_PLACEHOLDER），绝不裸 ``KeyError``。
     """
     c = dict(ctx)
     history = list(c.get("history") or [])
     if window and window > 0:
         history = history[-window:]
     c["history"] = "\n".join(_line(h) for h in history)
-    return template.format(**c)
+    return template.format_map(_SafeDict(c))
 
 
 def _line(h: Any) -> str:
@@ -162,16 +200,22 @@ class RoundRobinSelector:
 class LlmPickSelector:
     """llm_pick — 让 picker 角色选下一位（``pick_next`` 输出）。"""
 
-    def __init__(self, llm: LLM, picker: RoleConfig):
+    def __init__(
+        self,
+        llm: LLM,
+        picker: RoleConfig,
+        *,
+        topic: str | None = None,
+        stance: str | None = None,
+    ):
         self._llm = llm
         self._picker = picker
+        self._topic = topic
+        self._stance = stance
 
     async def next(self, roster: list[Agent], transcript: list[Turn]) -> Selection:
-        prompt = render(
-            self._picker.prompt,
-            {"name": self._picker.id, "history": transcript},
-            self._picker.window,
-        )
+        ctx = build_context(self._picker, topic=self._topic, stance=self._stance, transcript=transcript)
+        prompt = render(self._picker.prompt, ctx, self._picker.window)
         parsed = parse(await self._llm.complete(prompt), OutputSpec(kind="pick_next"))
         if parsed.converged:
             return Selection(converged=True, conclusion=parsed.conclusion)
@@ -196,19 +240,27 @@ class FixedRoundsTerminator:
 class LlmVerdictTerminator:
     """llm_verdict — 让 judge 角色裁决收敛（``verdict`` 输出），``max`` 兜底。"""
 
-    def __init__(self, llm: LLM, judge: RoleConfig):
+    def __init__(
+        self,
+        llm: LLM,
+        judge: RoleConfig,
+        *,
+        topic: str | None = None,
+        stance: str | None = None,
+    ):
         self._llm = llm
         self._judge = judge
+        self._topic = topic
+        self._stance = stance
 
     async def should_stop(self, ctx: dict[str, Any]) -> StopDecision:
         max_ = ctx.get("max")
         at_cap = max_ is not None and ctx.get("current_seq", 0) >= max_
         transcript = ctx.get("transcript", [])
-        prompt = render(
-            self._judge.prompt,
-            {"name": self._judge.id, "history": transcript},
-            self._judge.window,
+        render_ctx = build_context(
+            self._judge, topic=self._topic, stance=self._stance, transcript=transcript
         )
+        prompt = render(self._judge.prompt, render_ctx, self._judge.window)
         parsed = parse(await self._llm.complete(prompt), OutputSpec(kind="verdict"))
         if parsed.parse_failure:
             # OQ4：解析失败视为未收敛 + 观测事件（由 relay 记录）；

@@ -61,14 +61,17 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
         if not role.prompt or not role.prompt.strip():
             raise DomainError(ROLE_DESCRIPTION_REQUIRED, f"角色 {role.id} 缺少产出所需描述")
 
-    # SummaryConfig 最小形状（api-sync-report §C-2，待 data-model ratify）
+    # SummaryConfig 最小形状（role/key/window，data-model §RUN summary 已 ratify）
     identity = set(_IDENTITY)
+    summary_key = None
+    summary_role = None
     if config.summary is not None:
         if not config.summary.role or not config.summary.key:
             raise DomainError(INVALID_CONFIG, "summary 的 role 与 key 必填")
         if config.summary.role not in role_by_id:
             raise DomainError(INVALID_CONFIG, f"summary 的角色 {config.summary.role} 不在名单内")
-        identity.add(config.summary.key)  # summary 注入字段始终可用
+        summary_key = config.summary.key  # 仅 summary.role 的 prompt 可引用（render 只为其注入）
+        summary_role = config.summary.role
 
     # AC-13：output 与 select/stop 匹配
     if config.stop.type == "llm_verdict" and config.stop.judge:
@@ -90,9 +93,12 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
                 f"选人者 {config.select.role} 的产出格式应为 pick_next（当前为 {picker.output}）",
             )
 
-    # 模板占位符与 inject 字段名匹配
+    # 模板占位符与 inject 字段名匹配（summary.key 仅 summary.role 可用）
     for role in config.roles:
-        _validate_placeholders(role, identity)
+        role_identity = set(identity)
+        if summary_key is not None and role.id == summary_role:
+            role_identity.add(summary_key)
+        _validate_placeholders(role, role_identity)
 
     # max / window 数值合法
     if config.stop.max is not None and config.stop.max <= 0:

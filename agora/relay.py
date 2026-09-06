@@ -21,6 +21,7 @@ from .atoms import (
     OutputSpec,
     RoundRobinSelector,
     WindowSummarizer,
+    build_context,
     parse,
     render,
 )
@@ -70,8 +71,8 @@ async def relay(repository: Any, registry: Any, run_id: str) -> RunOutcome:
         for r in scenario.roles
         if r.output == "free_text"
     ]
-    selector = _build_selector(scenario, registry)
-    terminator = _build_terminator(scenario, registry)
+    selector = _build_selector(scenario, registry, runtime)
+    terminator = _build_terminator(scenario, registry, runtime)
     transcript: list[Turn] = await repository.read_transcript(run_id)
 
     def _emit(name: str, payload: dict[str, Any]) -> None:
@@ -161,20 +162,20 @@ async def _select_agent(selector: Any, roster: list[Agent], transcript: list[Tur
     return selection.agent_id, False, None
 
 
-def _build_selector(scenario: ScenarioConfig, registry: Any) -> Any:
+def _build_selector(scenario: ScenarioConfig, registry: Any, runtime: RuntimeValues) -> Any:
     t = scenario.select.type
     if t == "round_robin":
         return RoundRobinSelector()
     if t == "llm_pick":
         picker = _find_role(scenario.roles, scenario.select.role)
-        return LlmPickSelector(registry.llm, picker)
+        return LlmPickSelector(registry.llm, picker, topic=runtime.topic, stance=runtime.stance)
     cap = getattr(registry, "capabilities", {}).get(t)
     if cap is None:
         raise DomainError(UNKNOWN_CAPABILITY, f"选人方式 {t} 不受支持")
     return cap
 
 
-def _build_terminator(scenario: ScenarioConfig, registry: Any) -> Any:
+def _build_terminator(scenario: ScenarioConfig, registry: Any, runtime: RuntimeValues) -> Any:
     t = scenario.stop.type
     if t == "fixed_rounds":
         return FixedRoundsTerminator()
@@ -182,7 +183,7 @@ def _build_terminator(scenario: ScenarioConfig, registry: Any) -> Any:
         return ManualTerminator()
     if t == "llm_verdict":
         judge = _find_role(scenario.roles, scenario.stop.judge)
-        return LlmVerdictTerminator(registry.llm, judge)
+        return LlmVerdictTerminator(registry.llm, judge, topic=runtime.topic, stance=runtime.stance)
     cap = getattr(registry, "capabilities", {}).get(t)
     if cap is None:
         raise DomainError(UNKNOWN_CAPABILITY, f"判停方式 {t} 不受支持")
@@ -202,28 +203,22 @@ async def _produce(
 
     若该角色配置了 summary（AC-12）：先压缩共享转录 → 写私有 state → 注入 prompt。
     """
-    ctx = _build_ctx(role, runtime, transcript)
+    summary_text = None
     if summary is not None and summary.role == role.id:
         summary_text = await WindowSummarizer().summarize(transcript, {"window": summary.window})
         if repository is not None and run_id is not None:
             await repository.write_private(run_id, role.id, summary.key, summary_text)
-        ctx[summary.key] = summary_text
+    ctx = build_context(
+        role,
+        topic=runtime.topic,
+        stance=runtime.stance,
+        transcript=transcript,
+        summary_key=summary.key if summary is not None and summary.role == role.id else None,
+        summary_text=summary_text,
+    )
     prompt = render(role.prompt, ctx, role.window)
     text = await llm.complete(prompt)
     return parse(text, OutputSpec(kind="free_text")).text or text
-
-
-def _build_ctx(role: RoleConfig, runtime: RuntimeValues, transcript: list[Turn]) -> dict[str, Any]:
-    """构造角色的上下文字段，只注入 inject 声明的字段 + 身份字段。"""
-    full = {
-        "name": role.id,
-        "role_description": role.prompt,  # data-model §AGENT：描述即 prompt
-        "topic": runtime.topic,
-        "stance": runtime.stance or "",
-        "history": transcript,
-    }
-    inject = set(role.inject) | {"name", "role_description"}
-    return {k: v for k, v in full.items() if k in inject}
 
 
 def _find_role(roles: list[RoleConfig], role_id: str | None) -> RoleConfig:
