@@ -1,120 +1,78 @@
-"""T11 — CLI create / run / stop / export + exit codes (contracts/cli.md)."""
-
-import json
+"""T10 — CLI run/stop/resume/observe + 退出码（contracts/cli.md）。"""
+from __future__ import annotations
 
 import pytest
 import yaml
-from weave.llm.base import LLMResponse
 
-from brainstorm.cli import main
-from brainstorm.weave_adapter.persona_agent import FakeLLM
+from agora.adapter.llm import FakeLLM
+from agora.cli import main
 
 
 @pytest.fixture
 def db(tmp_path):
-    return str(tmp_path / "brainstorm.db")
+    return str(tmp_path / "agora.db")
 
 
-def _personas_file(tmp_path):
-    p = tmp_path / "personas.yaml"
+def _scenario_file(tmp_path, stop_type="fixed_rounds", stop_max=2):
+    p = tmp_path / "scenario.yaml"
     p.write_text(
         yaml.safe_dump(
             {
-                "personas": [
-                    {"persona_id": "a", "name": "A", "role_description": "产品"},
-                    {"persona_id": "b", "name": "B", "role_description": "技术"},
-                ]
-            }
+                "scenario": "brainstorm",
+                "roles": [
+                    {"id": "alice", "prompt": "你是{name}。主题：{topic}", "inject": ["topic"], "output": "free_text"},
+                    {"id": "bob", "prompt": "你是{name}。主题：{topic}", "inject": ["topic"], "output": "free_text"},
+                ],
+                "select": {"type": "round_robin"},
+                "stop": {"type": stop_type, "max": stop_max},
+            },
+            allow_unicode=True,
         ),
         encoding="utf-8",
     )
     return str(p)
 
 
-def test_create_prints_session_id(capsys, db, tmp_path):
-    rc = main(
-        ["create", "--topic", "主题", "--personas", _personas_file(tmp_path)],
-        db_path=db,
-    )
-    out = capsys.readouterr().out.strip()
-    assert rc == 0
-    assert out  # non-empty session_id
-
-
-def test_run_prints_outcome(capsys, db, tmp_path):
-    main(
-        ["create", "--topic", "主题", "--personas", _personas_file(tmp_path), "--max-speeches", "2"],
-        db_path=db,
-    )
-    session_id = capsys.readouterr().out.strip()
-
-    rc = main(["run", session_id], db_path=db)
+def test_run_prints_run_id_and_outcome(capsys, db, tmp_path):
+    rc = main(["run", "--config", _scenario_file(tmp_path), "--topic", "主题", "--db", db], llm_factory=FakeLLM)
     out = capsys.readouterr().out
-
     assert rc == 0
     assert "status=stopped" in out
-    assert "speeches=2" in out
+    assert "termination=fixed_rounds" in out
+    assert "turns=2" in out
 
 
-def test_domain_error_exit_1(capsys, db, tmp_path):
-    rc = main(
-        ["create", "--topic", "", "--personas", _personas_file(tmp_path)],
-        db_path=db,
-    )
+def test_run_missing_topic_exit_1(capsys, db, tmp_path):
+    rc = main(["run", "--config", _scenario_file(tmp_path), "--db", db], llm_factory=FakeLLM)
     err = capsys.readouterr().err
     assert rc == 1
-    assert "session.topic_required" in err
+    assert "agora.runtime_value_required" in err
+
+
+def test_run_nonexistent_scenario_exit_1(capsys, db, tmp_path):
+    rc = main(["run", "--config", str(tmp_path / "nope.yaml"), "--topic", "主题", "--db", db], llm_factory=FakeLLM)
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "agora.scenario_not_found" in err
+
+
+def test_stop_nonexistent_exit_1(capsys, db):
+    rc = main(["stop", "nope", "--db", db], llm_factory=FakeLLM)
+    assert rc == 1
+    assert "agora.run_not_found" in capsys.readouterr().err
+
+
+def test_resume_nonexistent_exit_1(capsys, db):
+    rc = main(["resume", "nope", "--db", db], llm_factory=FakeLLM)
+    assert rc == 1
+    assert "agora.run_not_found" in capsys.readouterr().err
+
+
+def test_observe_nonexistent_exit_1(capsys, db):
+    rc = main(["observe", "nope", "--db", db], llm_factory=FakeLLM)
+    assert rc == 1
+    assert "agora.run_not_found" in capsys.readouterr().err
 
 
 def test_usage_error_exit_2(capsys, db):
-    assert main(["bogus"], db_path=db) == 2
-
-
-def test_config_xor_single_flags(capsys, db):
-    assert main(["create", "--config", "x.yaml", "--topic", "主题"], db_path=db) == 2
-
-
-def test_export_json(capsys, db, tmp_path):
-    main(
-        ["create", "--topic", "主题", "--personas", _personas_file(tmp_path), "--max-speeches", "2"],
-        db_path=db,
-    )
-    sid = capsys.readouterr().out.strip()
-    main(["run", sid], db_path=db)
-    capsys.readouterr()
-
-    rc = main(["export", sid, "--format", "json"], db_path=db)
-    out = json.loads(capsys.readouterr().out)
-
-    assert rc == 0
-    assert isinstance(out, list)
-    assert len(out) == 2
-    assert set(out[0]) == {"seq", "speaker_id", "text"}
-
-
-class ConvergingLLM(FakeLLM):
-    """Deterministic router double — always declares convergence (AC-08/10 at CLI)."""
-
-    async def chat(self, messages, tools=None, max_tokens=4096, temperature=0.7):
-        return LLMResponse(content="CONVERGE: 结论是X")
-
-
-def test_run_moderator_converges(capsys, db, tmp_path):
-    main(
-        [
-            "create",
-            "--topic", "主题",
-            "--personas", _personas_file(tmp_path),
-            "--scheduler", "moderator",
-            "--stop-condition", "convergence",
-        ],
-        db_path=db,
-    )
-    sid = capsys.readouterr().out.strip()
-
-    rc = main(["run", sid], db_path=db, llm_factory=ConvergingLLM)
-    out = capsys.readouterr().out
-
-    assert rc == 0
-    assert "converged=True" in out
-    assert "结论是X" in out
+    assert main(["bogus", "--db", db], llm_factory=FakeLLM) == 2
