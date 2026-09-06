@@ -1,103 +1,138 @@
-"""T6 — YAML config loader (AC-12/AC-13) + declarative wiring (AC-14)."""
+"""T5 — 配置 schema 与加载时校验（AC-03/04/13 + 保留字 + 占位符）。"""
+from __future__ import annotations
 
 import pytest
 import yaml
 
-from brainstorm.business.errors import PERSONA_ROLE_REQUIRED, DomainError
-from brainstorm.business.types import SessionConfig
-from brainstorm.config_loader import load_config, load_personas, parse_config
-from brainstorm.extensions.schedulers.round_robin import RoundRobinScheduler
-from brainstorm.extensions.stop_conditions.fixed_rounds import FixedRoundsStop
-from brainstorm.extensions.stop_conditions.manual import ManualStop
-from brainstorm.wiring import assemble_defaults
+from agora.config import load_config, parse_config, validate_config
+from agora.errors import (
+    INVALID_CONFIG,
+    INVALID_PLACEHOLDER,
+    OUTPUT_JUDGE_MISMATCH,
+    RESERVED_AGENT_ID,
+    ROLE_DESCRIPTION_REQUIRED,
+    UNKNOWN_CAPABILITY,
+    DomainError,
+)
 
 
-def test_parse_config_from_dict():
+def _raw(**overrides):
     raw = {
-        "topic": "如何提升留存",
-        "personas": [
-            {"persona_id": "a", "name": "A", "role_description": "产品"},
-            {"persona_id": "b", "name": "B", "role_description": "技术"},
+        "scenario": "brainstorm",
+        "roles": [
+            {"id": "alice", "prompt": "你是{name}。主题：{topic}", "inject": ["topic"], "window": 20, "output": "free_text"},
+            {"id": "judge", "prompt": "判收敛：{history}", "inject": ["history"], "output": "verdict"},
         ],
-        "scheduler": "round_robin",
-        "stop_condition": {"type": "fixed_rounds", "max_speeches": 5},
+        "select": {"type": "round_robin"},
+        "stop": {"type": "llm_verdict", "judge": "judge", "max": 20},
     }
-    cfg = parse_config(raw)
-    assert isinstance(cfg, SessionConfig)
-    assert cfg.topic == "如何提升留存"
-    assert [p.persona_id for p in cfg.personas] == ["a", "b"]
-    assert cfg.scheduler == "round_robin"
-    assert cfg.stop_condition.type == "fixed_rounds"
-    assert cfg.stop_condition.max_speeches == 5
+    raw.update(overrides)
+    return raw
 
 
-def test_load_config_rejects_missing_role_description(tmp_path):
-    p = tmp_path / "c.yaml"
-    p.write_text(
-        yaml.safe_dump(
-            {
-                "topic": "主题",
-                "personas": [
-                    {"persona_id": "a", "name": "A", "role_description": "产品"},
-                    {"persona_id": "b", "name": "B"},  # missing role_description
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
+# ── 合法配置 ───────────────────────────────────────────────────────────
+
+def test_valid_config_parses():
+    c = parse_config(_raw())
+    assert c.scenario == "brainstorm"
+    assert len(c.roles) == 2
+    assert c.stop.type == "llm_verdict" and c.stop.judge == "judge"
+    assert c.select.type == "round_robin"
+
+
+def test_valid_config_passes_validate():
+    validate_config(parse_config(_raw()))  # must not raise
+
+
+# ── AC-03 未知能力 ─────────────────────────────────────────────────────
+
+def test_unknown_select_capability_rejected():
     with pytest.raises(DomainError) as exc:
-        load_config(p)
-    assert exc.value.code == PERSONA_ROLE_REQUIRED
+        parse_config(_raw(select={"type": "telepathy"}))
+    assert exc.value.code == UNKNOWN_CAPABILITY
 
 
-def test_load_personas_list(tmp_path):
-    p = tmp_path / "personas.yaml"
-    p.write_text(
-        yaml.safe_dump(
-            {
-                "personas": [
-                    {"persona_id": "a", "name": "A", "role_description": "产品"},
-                    {"persona_id": "b", "name": "B", "role_description": "技术"},
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    personas = load_personas(p)
-    assert [x.persona_id for x in personas] == ["a", "b"]
+def test_unknown_stop_capability_rejected():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(stop={"type": "mood_ring"}))
+    assert exc.value.code == UNKNOWN_CAPABILITY
 
 
-def test_load_personas_bare_list(tmp_path):
-    """A bare YAML list is a valid roster (README `--personas personas.yaml`)."""
-    p = tmp_path / "personas.yaml"
-    p.write_text(
-        yaml.safe_dump(
-            [
-                {"persona_id": "a", "name": "A", "role_description": "产品"},
-                {"persona_id": "b", "name": "B", "role_description": "技术"},
-            ]
-        ),
-        encoding="utf-8",
-    )
-    personas = load_personas(p)
-    assert [x.persona_id for x in personas] == ["a", "b"]
+# ── AC-04 角色描述必填 ─────────────────────────────────────────────────
+
+def test_missing_role_description_rejected():
+    raw = _raw()
+    raw["roles"][0]["prompt"] = ""
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == ROLE_DESCRIPTION_REQUIRED
 
 
-class _FakeRegistry:
-    def __init__(self):
-        self.schedulers = {}
-        self.stop_conditions = {}
+# ── AC-13 output 与 select/stop 匹配 ────────────────────────────────────
 
-    def register_scheduler(self, name, instance):
-        self.schedulers[name] = instance
-
-    def register_stop_condition(self, name, instance):
-        self.stop_conditions[name] = instance
+def test_judge_with_free_text_output_rejected():
+    raw = _raw()
+    raw["roles"][1]["output"] = "free_text"  # judge 应为 verdict
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == OUTPUT_JUDGE_MISMATCH
 
 
-def test_assemble_defaults_registers():
-    reg = _FakeRegistry()
-    assemble_defaults(reg)
-    assert isinstance(reg.schedulers["round_robin"], RoundRobinScheduler)
-    assert isinstance(reg.stop_conditions["fixed_rounds"], FixedRoundsStop)
-    assert isinstance(reg.stop_conditions["manual"], ManualStop)
+def test_picker_with_wrong_output_rejected():
+    raw = _raw()
+    raw["select"] = {"type": "llm_pick", "role": "judge"}  # judge 是 verdict，不是 pick_next
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == OUTPUT_JUDGE_MISMATCH
+
+
+# ── 保留字 / 占位符 ────────────────────────────────────────────────────
+
+def test_reserved_events_agent_id_rejected():
+    raw = _raw()
+    raw["roles"][0]["id"] = "events"
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == RESERVED_AGENT_ID
+
+
+def test_placeholder_not_in_inject_rejected():
+    raw = _raw()
+    raw["roles"][0]["prompt"] = "主题：{topic} 立场：{stance}"  # stance 未在 inject
+    raw["roles"][0]["inject"] = ["topic"]
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == INVALID_PLACEHOLDER
+
+
+def test_unknown_inject_field_rejected():
+    raw = _raw()
+    raw["roles"][0]["inject"] = ["topic", "mood"]
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == INVALID_PLACEHOLDER
+
+
+# ── max/window 数值 ────────────────────────────────────────────────────
+
+def test_nonpositive_max_rejected():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(stop={"type": "fixed_rounds", "max": 0}))
+    assert exc.value.code == INVALID_CONFIG
+
+
+# ── 扩展能力注入（T6 前置：known_capabilities 注入）────────────────────
+
+def test_custom_capability_accepted_when_registered():
+    known = {"round_robin", "llm_pick", "fixed_rounds", "llm_verdict", "manual", "custom_sel"}
+    c = parse_config(_raw(select={"type": "custom_sel"}), known_capabilities=known)
+    assert c.select.type == "custom_sel"
+
+
+# ── load_config 读 YAML ────────────────────────────────────────────────
+
+def test_load_config_reads_yaml(tmp_path):
+    path = tmp_path / "s.yaml"
+    path.write_text(yaml.safe_dump(_raw(), allow_unicode=True), encoding="utf-8")
+    c = load_config(path)
+    assert c.scenario == "brainstorm"

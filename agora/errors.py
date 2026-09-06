@@ -35,4 +35,9 @@ RUN_CORRUPTED = "agora.run_corrupted"  # AC-15b
 INVALID_STATE = "agora.invalid_state"  # 对已结束的会话继续接力（Flow 1）
 TURN_ALREADY_PRODUCED = "agora.turn_already_produced"  # AC-06
 
+# 配置结构校验（ADR-0005 校验面）——超出 §3 的 9 个 AC 派生码，属加载时校验的额外类别。
+RESERVED_AGENT_ID = "agora.reserved_agent_id"  # 保留字 `events` 不得作为 agent_id
+INVALID_PLACEHOLDER = "agora.invalid_placeholder"  # 模板占位符与 inject 字段名不匹配
+INVALID_CONFIG = "agora.invalid_config"  # max/window 数值非法、judge/picker 引用不存在的角色
+
 # 跨会话/角色隔离（AC-16/17）是结构性（namespace 构造）而非运行时拒绝——不设哨兵。
