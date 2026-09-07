@@ -261,6 +261,24 @@
       "acs": [],
       "dod": "validator.py：stop.type==llm_verdict 且 stop.judge 为空、select.type==llm_pick 且 select.role 为空时 raise DomainError(INVALID_CONFIG)。测试断言这两类配置加载时被拒。",
       "files_hint": ["agora/config/validator.py", "tests/test_config.py"]
+    },
+    {
+      "id": "T30",
+      "title": "summary.role 限定为产出角色（output=free_text）",
+      "layer": "app",
+      "deps": [],
+      "acs": [],
+      "dod": "validator.py：summary.role 对应的角色 output 必须为 free_text，否则 raise DomainError(INVALID_CONFIG)。测试断言 summary.role 指向 verdict/pick_next 角色的配置加载时被拒。",
+      "files_hint": ["agora/config/validator.py", "tests/test_config.py"]
+    },
+    {
+      "id": "T31",
+      "title": "校验 roles[].output 为闭集枚举",
+      "layer": "app",
+      "deps": [],
+      "acs": [],
+      "dod": "schema.py/validator.py：roles[].output ∈ {free_text, pick_next, verdict}，非法值 raise DomainError(INVALID_CONFIG)；测试断言 output 拼写错误（如 freetext）的配置加载时被拒且无静默空跑。",
+      "files_hint": ["agora/config/schema.py", "agora/config/validator.py", "tests/test_config.py"]
     }
   ]
 }

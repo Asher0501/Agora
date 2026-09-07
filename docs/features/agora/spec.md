@@ -264,3 +264,4 @@ feature_size: "L"
 - [ ] 扩展区接口本轮是否承诺稳定/版本化？Default now: 不承诺，作为「内部逃生门」交付。— owner: Tech Lead, due: before sdd:design
 - [ ] 选人无效时的重试次数上限？Default now: 1 次。— owner: Tech Lead, due: before sdd:design
 - [ ] 扩展区代码的信任边界：扩展区代码与引擎是否同进程、能否跨命名空间读取其它会话/角色私有状态？Default now: 同进程、视为受信代码，但读范围以 AC-16/17 为界（不跨命名空间）。— owner: Security Lead, due: before sdd:design
+- [ ] 并发 relay 同一 run 的重复产出防护：AC-06 的 `TURN_ALREADY_PRODUCED` 守卫目前只在显式 seq 分支生效，relay 走 `max+1` 自动序号，两个并发 relay 同一 run 会重复产出（触及「0 重复发言」不变量 / AC-15 resume 竞态窗口）。Default now: 暂不修（单进程单会话单任务模型下不会发生；并发 resume 竞态非本轮承诺面，见 review r3 finding 3）。— owner: Tech Lead, due: 多进程/服务化迭代

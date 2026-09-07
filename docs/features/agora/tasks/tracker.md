@@ -34,5 +34,7 @@
 | T27 | 补 CLI stop/resume 测试 | tests | Asher | S | — | done |
 | T28 | 配置结构形状守卫 | app | Asher | S | T25 | done |
 | T29 | llm_verdict/llm_pick 必填 judge/role | app | Asher | S | T25 | done |
+| T30 | summary.role 限定产出角色 | app | Asher | S | — | done |
+| T31 | roles[].output 闭集枚举校验 | app | Asher | S | — | done |
 
-**Total:** 29 tasks（T16–T24 为 review 反馈的 14 项修复；T25–T29 为复评 r2 反馈的 6 项修复）。
+**Total:** 31 tasks（T16–T24 为 review 反馈的 14 项修复；T25–T29 为复评 r2 反馈的 6 项修复；T30–T31 为复评 r3 反馈的 2 项修复）。
