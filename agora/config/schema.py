@@ -108,12 +108,18 @@ def load_config(path: str | Path, known_capabilities: set[str] | None = None) ->
 def _parse_role(raw: dict[str, Any]) -> RoleConfig:
     if not isinstance(raw, dict):
         raise DomainError(INVALID_CONFIG, f"role 必须为映射（收到 {type(raw).__name__}）")
+    output = raw.get("output", "free_text")
+    if output not in {"free_text", "pick_next", "verdict"}:
+        raise DomainError(
+            INVALID_CONFIG,
+            f"角色 {raw.get('id', '')} 的 output 非法：{output!r}（应为 free_text / pick_next / verdict）",
+        )
     return RoleConfig(
         id=str(raw.get("id", "")),
         prompt=str(raw.get("prompt", "")),
         inject=list(raw.get("inject") or []),
         window=_coerce_int(raw.get("window"), "window", 0),
-        output=raw.get("output", "free_text"),
+        output=output,
     )
 
 

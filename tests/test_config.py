@@ -206,6 +206,16 @@ def test_llm_pick_requires_role():
     assert exc.value.code == INVALID_CONFIG
 
 
+# ── T31 — roles[].output 闭集枚举（非法值加载时拒，无静默空跑）──────────
+
+def test_unknown_output_rejected():
+    raw = _raw()
+    raw["roles"][0]["output"] = "freetext"  # 拼写错误，非闭集枚举
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == INVALID_CONFIG
+
+
 # ── 扩展能力注入（T6 前置：known_capabilities 注入）────────────────────
 
 def test_custom_capability_accepted_when_registered():
