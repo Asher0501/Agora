@@ -70,6 +70,11 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
             raise DomainError(INVALID_CONFIG, "summary 的 role 与 key 必填")
         if config.summary.role not in role_by_id:
             raise DomainError(INVALID_CONFIG, f"summary 的角色 {config.summary.role} 不在名单内")
+        if role_by_id[config.summary.role].output != "free_text":
+            raise DomainError(
+                INVALID_CONFIG,
+                f"summary 的角色 {config.summary.role} 应为产出角色（free_text），当前为 {role_by_id[config.summary.role].output}",
+            )
         summary_key = config.summary.key  # 仅 summary.role 的 prompt 可引用（render 只为其注入）
         summary_role = config.summary.role
 

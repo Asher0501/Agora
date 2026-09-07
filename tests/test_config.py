@@ -216,6 +216,16 @@ def test_unknown_output_rejected():
     assert exc.value.code == INVALID_CONFIG
 
 
+# ── T30 — summary.role 限定产出角色（output=free_text）──────────────────
+
+def test_summary_role_must_be_free_text():
+    raw = _raw()
+    raw["summary"] = {"role": "judge", "key": "memo"}  # judge 是 verdict，非产出角色
+    with pytest.raises(DomainError) as exc:
+        parse_config(raw)
+    assert exc.value.code == INVALID_CONFIG
+
+
 # ── 扩展能力注入（T6 前置：known_capabilities 注入）────────────────────
 
 def test_custom_capability_accepted_when_registered():
