@@ -73,8 +73,10 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
         summary_key = config.summary.key  # 仅 summary.role 的 prompt 可引用（render 只为其注入）
         summary_role = config.summary.role
 
-    # AC-13：output 与 select/stop 匹配
-    if config.stop.type == "llm_verdict" and config.stop.judge:
+    # AC-13：output 与 select/stop 匹配；llm_verdict/llm_pick 必填 judge/role
+    if config.stop.type == "llm_verdict":
+        if not config.stop.judge:
+            raise DomainError(INVALID_CONFIG, "判停方式 llm_verdict 必须指定 judge")
         judge = role_by_id.get(config.stop.judge)
         if judge is None:
             raise DomainError(INVALID_CONFIG, f"裁判 {config.stop.judge} 不在角色名单内")
@@ -83,7 +85,9 @@ def validate_config(config: ScenarioConfig, known_capabilities: set[str] | None 
                 OUTPUT_JUDGE_MISMATCH,
                 f"裁判 {config.stop.judge} 的产出格式应为 verdict（当前为 {judge.output}）",
             )
-    if config.select.type == "llm_pick" and config.select.role:
+    if config.select.type == "llm_pick":
+        if not config.select.role:
+            raise DomainError(INVALID_CONFIG, "选人方式 llm_pick 必须指定 role")
         picker = role_by_id.get(config.select.role)
         if picker is None:
             raise DomainError(INVALID_CONFIG, f"选人者 {config.select.role} 不在角色名单内")

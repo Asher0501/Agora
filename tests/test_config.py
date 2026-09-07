@@ -192,6 +192,20 @@ def test_select_scalar_rejected():
     assert exc.value.code == INVALID_CONFIG
 
 
+# ── T29 — llm_verdict/llm_pick 必填 judge/role ─────────────────────────
+
+def test_llm_verdict_requires_judge():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(stop={"type": "llm_verdict", "max": 5}))
+    assert exc.value.code == INVALID_CONFIG
+
+
+def test_llm_pick_requires_role():
+    with pytest.raises(DomainError) as exc:
+        parse_config(_raw(select={"type": "llm_pick"}))
+    assert exc.value.code == INVALID_CONFIG
+
+
 # ── 扩展能力注入（T6 前置：known_capabilities 注入）────────────────────
 
 def test_custom_capability_accepted_when_registered():
